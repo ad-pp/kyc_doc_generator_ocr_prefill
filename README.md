@@ -1,6 +1,6 @@
 # Merchant Onboarding Document Generator
 
-A single static HTML page that lets an on-ground sales agent fill in
+A static web application that lets an on-ground sales agent fill in
 merchant/entity details once and generate every required onboarding
 document (Partner/Board Resolution, BO Declaration, MDF) as real Word
 (`.docx`) files or print-to-PDF — no backend server required.
@@ -14,9 +14,10 @@ document (Partner/Board Resolution, BO Declaration, MDF) as real Word
 
 ## How it works
 
-- Everything runs in the browser. `docx.js` (the same library used to
-  generate Word documents) is loaded from a CDN as an ES module — there is
-  no Node/Express server to host or maintain.
+- Everything runs in the browser. Version-pinned document libraries are
+  stored under `vendor/` and deployed with the application, so generation
+  and preview do not depend on a third-party CDN at runtime. There is no
+  Node/Express server to host or maintain.
 - Data you enter is auto-saved to `localStorage` as you type, so agents can
   close the tab and resume later without losing progress.
 - Two storage buckets are kept separate:
@@ -27,6 +28,11 @@ document (Partner/Board Resolution, BO Declaration, MDF) as real Word
 - Information is captured exactly once and reused across every document in
   the selected set (e.g. firm name, address, partner list, letterhead are
   shared between the Resolution and the BO Declaration).
+- Word documents can be reviewed in the application before download. The
+  preview renders the exact generated DOCX blob using lazily loaded,
+  version-pinned `docx-preview` and `JSZip` libraries. Microsoft Word may
+  paginate a document slightly differently, so the UI labels it as an
+  approximate Word preview.
 
 ## Hosting
 
@@ -36,9 +42,9 @@ files:
 - **GitHub Pages** — push this folder to a repo, enable Pages, done.
 - **Any static file host** (Netlify, Cloudflare Pages, S3 + CloudFront,
   internal web server, etc.)
-- **Locally** — you can even just double-click `index.html` on a phone or
-  laptop and it will work (docx.js is fetched from the CDN, so an internet
-  connection is required at least once per session to load it).
+- **Locally** — serve the folder over HTTP using the command below. Browsers
+  usually block ES module imports if `index.html` is opened directly as a
+  `file://` URL.
 
 No build step, no `npm install`, no server process to keep alive.
 
@@ -87,6 +93,8 @@ skips logging.
 |------------|-------------|---------------------------------------------------|
 | ACE        | Partnership | Partner Resolution, BO Declaration, or both       |
 | ACE        | Company     | Board Resolution, BO Declaration, or both         |
+| ACE        | Partnership | Resolution + BO Declaration + ACE OSV/MDF          |
+| ACE        | Company     | Board Resolution + BO Declaration + ACE OSV/MDF    |
 | Salesforce | Partnership | Resolution, BO Declaration, MDF, or all three     |
 | Salesforce | Company     | Board Resolution, BO Declaration, MDF, or all three |
 
@@ -97,6 +105,56 @@ For every document you can either:
   generated entirely client-side.
 - **Print / PDF** — opens the browser print dialog so the agent can save
   directly as a PDF if that's more convenient on a particular device.
+- **Preview Word** — renders the generated Word file inside the app before
+  download. Preview libraries load only when requested to keep initial load
+  light on low-end devices.
+
+## Hosting recommendation
+
+GitHub Pages works technically because all document generation happens in
+the browser. It has no server runtime to overload as daily usage grows.
+However, ordinary GitHub Pages is publicly reachable, offers no application
+authentication, and GitHub describes Pages as unsuitable for sensitive
+transactions or commercial SaaS-style hosting. A private repository does
+not automatically make its Pages URL private. This matters because the app
+handles PAN, DOB, residential address and ownership information.
+
+For production, **Cloudflare Pages** is the recommended free static host:
+
+- GitHub integration and automatic deployment on every push.
+- Preview deployments for every branch/pull request.
+- Static asset requests are not metered on the free Pages plan.
+- Security headers and redirects can be defined in repository files.
+- Cloudflare Access can add corporate SSO if required (its free tier is
+  suitable only for a limited user count; verify current enterprise needs).
+
+Deployment is change-friendly: connect the same GitHub repository in
+Cloudflare Pages, select no framework/build command, and publish the folder
+containing `index.html`. Future regulatory changes deploy through the same
+normal Git commit/push workflow.
+
+Other alternatives:
+
+- **Firebase Hosting** — GitHub Actions integration and a generous static
+  CDN, but free transfer has a monthly cap and requires billing to scale.
+- **Azure Static Web Apps** — good for organizations already using Azure and
+  Entra ID; the free tier has quotas and no SLA.
+- **Netlify** — excellent previews, but its current credit-based free plan is
+  less predictable for frequent deployments and high daily traffic.
+- **Vercel Hobby** — not recommended because its free tier is intended for
+  personal/non-commercial use.
+
+Regardless of host, browser-visible URLs such as `SHEETS_URL` are not
+secrets. The domain-restricted Apps Script and corporate Google session are
+the current access controls for logging.
+
+## Data protection
+
+Merchant data is stored in browser `localStorage` so interrupted sessions
+can resume. This storage is not encrypted. Use managed devices, clear each
+merchant after document generation, and avoid sharing devices between
+agents. For stricter policy, add automatic expiry or disable merchant
+persistence before production rollout.
 
 ## Editing legal text
 
@@ -105,7 +163,9 @@ All document wording lives in `app.js`:
 - `buildPartnershipResolution` / `buildPartnershipBO` — Partnership .docx
 - `buildCompanyResolution` / `buildCompanyBO` — Company .docx
 - `buildMDF` — MDF .docx
-- `printable*` functions — the plain-HTML equivalents used by Print/PDF
+
+Preview and Print/PDF render the DOCX generated by these same builders, so
+there is only one legal-text implementation to update and test.
 
 If your legal/compliance team asks for wording changes, these are the
 functions to edit. Keep the `u(...)` wrapper around any value that should
