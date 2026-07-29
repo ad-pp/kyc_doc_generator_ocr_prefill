@@ -945,9 +945,9 @@ async function buildMDF(d) {
         p([t((isCompany ? "\u2611" : "\u2610") + " Company    " + (isRegPartnership ? "\u2611" : "\u2610") + " Registered Partnership Firm    " + (isUnregPartnership ? "\u2611" : "\u2610") + " Un-Registered Partnership Firm")]),
       ] : []),
       new Paragraph({ children: [
-        t("1. The Merchant is registered under the Income Tax Act, 1961 and has obtained TAN Number "),
-        u(d.mdfTanStatus === "has_tan" ? d.mdfTanNum : "N/A"),
-        t(" against the registration. OR The Merchant does not hold TAN as it is not liable to deduct tax at source or collect tax at source as per the provisions of Income Tax Act, 1961 (" + (d.mdfTanStatus === "no_tan" ? "\u2611" : "\u2610") + ")."),
+        t((d.mdfTanStatus === "has_tan" ? "\u2611" : "\u2610") + " 1. The Merchant is registered under the Income Tax Act, 1961 and has obtained TAN Number "),
+        ...(d.mdfTanStatus === "has_tan" ? [u(d.mdfTanNum)] : [t("_________________________")]),
+        t(" against the registration. OR\n" + (d.mdfTanStatus === "no_tan" ? "\u2611" : "\u2610") + " The Merchant does not hold TAN as it is not liable to deduct tax at source or collect tax at source as per the provisions of Income Tax Act, 1961."),
       ], spacing: { after: 120 } }),
       ...( !isACE ? [ new Paragraph({ children: [
         t("2. The Merchant is registered and a GSTIN certificate/acknowledgement having provisional number "), u(d.mdfGstStatus === "has_gst" ? d.mdfGstNum : "N/A"),
