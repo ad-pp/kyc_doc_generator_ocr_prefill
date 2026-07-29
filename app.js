@@ -30,7 +30,7 @@ const state = {
   // Step 0 - Agent + Merchant identification (the "only 2 datapoints" logged to Sheet)
   agentMobile: "",
   merchantStatus: "new",       // 'new' | 'existing'
-  merchantDisplayName: "",     // required if new
+  merchantMobile: "",          // required if new
   merchantId: "",              // required if existing
   loggedThisSession: false,
 
@@ -43,12 +43,12 @@ const state = {
   // Shared legal/entity profile (filled once, reused across every document)
   firmName: "",
   regAddress: "",
-  includeLetterhead: false,
+  includeLetterhead: true,
   lhTagline: "", lhPhone: "", lhEmail: "", lhWebsite: "",
   principalSame: "same",
   principalAddress: "",
   partnershipRegType: "registered",
-  naturalPersons: "",
+  naturalPersons: "yes",
   deedDate: "",
 
   // Partners / Directors
@@ -59,7 +59,7 @@ const state = {
   // Resolution
   resolutionDateRaw: "",
   resolutionTimeRaw: "",
-  pepStatusRes: "",
+  pepStatusRes: "no",
 
   // BO
   boDate: "",
@@ -67,6 +67,13 @@ const state = {
   pepStatusBO: "",
   companyListingStatus: "not_listed",
   stockExchangeName: "",
+  boExternalAS: false,
+  boExternalASName: "",
+  boExternalASDesignation: "",
+
+  // Company certification rules
+  isOPC: false,
+  opcApprovalConfirmed: false,
 
   // MDF
   mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "",
@@ -91,22 +98,22 @@ const docOptionsMap = {
     partnership: [
       { id: "set1", label: "Partner Resolution" },
       { id: "set2", label: "BO Declaration" },
-      { id: "set3", label: "Resolution + BO Declaration" },
-      { id: "set4", label: "Resolution + BO Declaration + ACE OSV (MDF)" },
+      { id: "set3", label: "Partner Resolution + BO Declaration" },
+      { id: "set4", label: "Partner Resolution + BO Declaration + ACE OSV (MDF)" },
     ],
     company: [
       { id: "set5", label: "Board Resolution" },
       { id: "set6", label: "BO Declaration" },
-      { id: "set7", label: "Resolution + BO Declaration" },
+      { id: "set7", label: "Board Resolution + BO Declaration" },
       { id: "set8", label: "Board Resolution + BO Declaration + ACE OSV (MDF)" },
     ],
   },
   salesforce: {
     partnership: [
-      { id: "set9", label: "Resolution" },
+      { id: "set9", label: "Partner Resolution" },
       { id: "set10", label: "BO Declaration" },
       { id: "set11", label: "MDF" },
-      { id: "set12", label: "Resolution + BO Declaration + MDF" },
+      { id: "set12", label: "Partner Resolution + BO Declaration + MDF" },
     ],
     company: [
       { id: "set13", label: "Board Resolution" },
@@ -156,6 +163,52 @@ function clearMerchantData() {
   localStorage.removeItem(LS_MERCHANT);
   location.reload();
 }
+function globalReset() {
+  if (!confirm("GLOBAL RESET will permanently clear all merchant data and the saved agent mobile number. Continue?")) return;
+  localStorage.removeItem(LS_MERCHANT);
+  localStorage.removeItem(LS_AGENT);
+  location.reload();
+}
+function resetSection(section) {
+  const labels = {
+    tracking: "merchant tracking details",
+    platform: "platform and entity selection",
+    documents: "document selection",
+    entity: "entity and letterhead details",
+    members: "partners/directors",
+    resolution: "resolution details",
+    bo: "BO declaration details",
+    mdf: "MDF details",
+  };
+  if (!confirm("Reset " + labels[section] + "? Other sections will be kept.")) return;
+  if (section === "tracking") Object.assign(state, { merchantStatus: "new", merchantMobile: "", merchantId: "", loggedThisSession: false });
+  if (section === "platform") Object.assign(state, { onboardingType: null, entityType: null, docRequirement: null });
+  if (section === "documents") Object.assign(state, { docRequirement: null });
+  if (section === "entity") Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, lhTagline: "", lhPhone: "", lhEmail: "", lhWebsite: "", principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "" });
+  if (section === "members") Object.assign(state, { partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [] });
+  if (section === "resolution") Object.assign(state, { resolutionDateRaw: "", resolutionTimeRaw: "", naturalPersons: "yes", pepStatusRes: "no", presentPartnerIds: [], isOPC: false, opcApprovalConfirmed: false });
+  if (section === "bo") Object.assign(state, { boDate: "", boCategory: "cat1", pepStatusBO: "", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "" });
+  if (section === "mdf") Object.assign(state, { mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
+  state.inlineErrors = {};
+  state.formValidated = false;
+  saveMerchant();
+  rerender();
+}
+function resetPage() {
+  const sections = state.step === 0 ? ["tracking"] : state.step === 1 ? ["platform"] : state.step === 2 ? ["documents"] : state.step === 3 ? ["entity", "members", "resolution", "bo", "mdf"] : [];
+  if (!sections.length || !confirm("Reset every field on this page? Data on other pages will be kept.")) return;
+  // The individual resets are applied without repeated confirmations.
+  if (state.step === 0) Object.assign(state, { merchantStatus: "new", merchantMobile: "", merchantId: "", loggedThisSession: false });
+  if (state.step === 1) Object.assign(state, { onboardingType: null, entityType: null, docRequirement: null });
+  if (state.step === 2) state.docRequirement = null;
+  if (state.step === 3) {
+    Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, lhTagline: "", lhPhone: "", lhEmail: "", lhWebsite: "", principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "", partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [], resolutionDateRaw: "", resolutionTimeRaw: "", naturalPersons: "yes", pepStatusRes: "no", isOPC: false, opcApprovalConfirmed: false, boDate: "", boCategory: "cat1", pepStatusBO: "", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "", mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
+  }
+  state.inlineErrors = {};
+  state.formValidated = false;
+  saveMerchant();
+  rerender();
+}
 
 let saveTimer = null;
 const scheduleSave = () => {
@@ -183,7 +236,7 @@ function logToSheet() {
     const payload = {
       timestamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
       agentMobile: state.agentMobile,
-      merchant: state.merchantStatus === "new" ? state.merchantDisplayName : state.merchantId,
+      merchant: state.merchantStatus === "new" ? state.merchantMobile : state.merchantId,
       merchantStatus: state.merchantStatus,
     };
     submitViaHiddenForm(SHEETS_URL, payload);
@@ -307,6 +360,7 @@ function computeDerived() {
     const parts = parseDateParts(p.dobRaw);
     return {
       ...p,
+      designation: state.entityType === "partnership" ? "Partner" : p.designation,
       pan: (p.pan || "").toUpperCase(),
       dob: parts ? parts.day + "/" + parts.month + "/" + parts.year : "",
       poaNumDisplay: p.poa === "AADHAAR" ? ("XXXX XXXX " + (p.poaNum || "")).trim() : p.poaNum,
@@ -382,7 +436,7 @@ function prefillDateTime() {
 function validateStep0() {
   const errs = {};
   if (!MOBILE_REGEX.test(state.agentMobile)) errs.agentMobile = "Enter a valid 10-digit mobile number";
-  if (state.merchantStatus === "new" && !state.merchantDisplayName.trim()) errs.merchantDisplayName = "Establishment / Merchant Display Name is required";
+  if (state.merchantStatus === "new" && !MOBILE_REGEX.test(state.merchantMobile)) errs.merchantMobile = "Enter the merchant's valid 10-digit mobile number";
   if (state.merchantStatus === "existing" && !state.merchantId.trim()) errs.merchantId = "Merchant ID is required";
   state.inlineErrors = errs;
   rerender();
@@ -395,11 +449,13 @@ function validateDataEntry() {
 
   if (!state.firmName.trim()) addError("Legal name is required.", "firmName");
   if (!state.regAddress.trim()) addError("Registered address is required.", "regAddress");
+  if (state.includeLetterhead && !state.lhTagline.trim()) addError("Tagline is required when letterhead is enabled.", "lhTagline");
   if (state.principalSame === "diff" && !state.principalAddress.trim()) addError("Principal office address is required.", "principalAddress");
 
   if (needsResolution(state.docRequirement) || needsBO(state.docRequirement)) {
     if (state.partners.length < 2) addError("Minimum 2 individuals are required.", "partners");
-    if (!state.partners.some((p) => p.isAS)) addError('Tick "Authorised Signatory" for one member.', "authSignatory");
+    const internalASRequired = needsResolution(state.docRequirement) || (needsBO(state.docRequirement) && (!state.boExternalAS || state.boCategory === "cat2"));
+    if (internalASRequired && !state.partners.some((p) => p.isAS)) addError('Tick "Authorised Signatory" for one member.', "authSignatory");
 
     let totalShare = 0;
     const requiresFull = needsFullKYC(state.docRequirement);
@@ -430,6 +486,18 @@ function validateDataEntry() {
       if (!state.naturalPersons) addError("Select the natural-person ownership declaration.", "naturalPersons");
       if (!state.pepStatusRes) addError("Select Yes or No for the resolution PEP declaration.", "pepStatusRes");
     }
+    if (state.entityType === "company") {
+      const selected = state.partners.filter((partner) => state.presentPartnerIds.includes(partner.id));
+      const seniorRoles = ["Company Secretary", "CEO", "Board Chairman", "Managing Director"];
+      const hasSeniorSigner = selected.some((partner) => seniorRoles.includes(partner.designation));
+      const directorCount = selected.filter((partner) => partner.designation === "Director").length;
+      if (state.isOPC) {
+        if (selected.length < 1) addError("OPC requires its Director to be selected for signing.", "companySigners");
+        if (!state.opcApprovalConfirmed) addError("Confirm that OPC approval was obtained over email.", "opcApprovalConfirmed");
+      } else if (!hasSeniorSigner && directorCount < 2) {
+        addError("Select one CS/CEO/Board Chairman/Managing Director, or at least two attending Directors.", "companySigners");
+      }
+    }
   }
 
   if (needsBO(state.docRequirement)) {
@@ -444,6 +512,10 @@ function validateDataEntry() {
         addError("Category 1 requires at least one owner above the applicable threshold.", "boCategory");
       }
     }
+    if (state.entityType === "company" && state.boExternalAS) {
+      if (!state.boExternalASName.trim()) addError("External BO authorised signatory name is required.", "boExternalASName");
+      if (!state.boExternalASDesignation.trim()) addError("External BO authorised signatory designation is required.", "boExternalASDesignation");
+    }
     if (needsResolution(state.docRequirement) && state.resolutionDateRaw && state.boDate && formatDate(state.resolutionDateRaw) !== formatDate(state.boDate)) {
       addError("BO date must match Resolution date.", "boDate");
     }
@@ -454,7 +526,8 @@ function validateDataEntry() {
     if (!state.mdfAuthDesignation.trim()) addError("Signatory designation is required.", "mdfAuthDesignation");
     if (!state.mdfAuthPan || !PAN_REGEX.test(state.mdfAuthPan.toUpperCase())) addError("Valid PAN is required.", "mdfAuthPan");
     if (!MOBILE_REGEX.test(state.mdfMobile)) addError("Valid mobile number required.", "mdfMobile");
-    if (!EMAIL_REGEX.test(state.mdfEmail)) addError("Valid email address required.", "mdfEmail");
+    if (state.mdfEmail && !EMAIL_REGEX.test(state.mdfEmail)) addError("Enter a valid email address or leave it blank.", "mdfEmail");
+    if (state.onboardingType === "salesforce" && !state.mdfEmail) addError("Email address is required for Salesforce MDF.", "mdfEmail");
     if (state.mdfPwd === "yes" && (!state.mdfPwdType.trim() || !state.mdfPwdPct || Number(state.mdfPwdPct) <= 0 || Number(state.mdfPwdPct) > 100)) {
       addError("Enter disability type and a valid percentage.", "mdfPwdPct");
     }
@@ -525,8 +598,8 @@ function buildLetterheadHeader(lh) {
   const lt = (text, opts={}) => new TextRun({ text: text||"", font: "Times New Roman", size: 18, ...opts });
   const logoCell = new TableCell({ borders: noBdrs, width: { size: 3600, type: WidthType.DXA }, margins: { top:0,bottom:0,left:0,right:200 },
     children: [
-      new Paragraph({ children: [new TextRun({ text: lh.firmName||"", font:"Times New Roman", size:36, bold:true, color:"5f259f" })], spacing:{after:40} }),
-      ...(lh.lhTagline ? [new Paragraph({ children:[lt(lh.lhTagline,{italics:true,color:"888888"})], spacing:{after:0} })] : []),
+      new Paragraph({ children: [new TextRun({ text: lh.firmName||"", font:"Times New Roman", size:34, bold:true, color:"4B137D" })], spacing:{after:20} }),
+      ...(lh.lhTagline ? [new Paragraph({ children:[lt(lh.lhTagline,{italics:true,color:"555555",bold:true})], spacing:{after:0} })] : []),
     ]});
   const contactLines = [
     lh.regAddress ? "Regd Office: " + lh.regAddress : null,
@@ -537,11 +610,11 @@ function buildLetterheadHeader(lh) {
   const contactCell = new TableCell({ borders: noBdrs, width: { size: 6480, type: WidthType.DXA }, margins:{top:0,bottom:0,left:200,right:0},
     children: contactLines.map((line) => new Paragraph({ children:[lt(line)], alignment: AlignmentType.RIGHT, spacing:{after:20} })) });
   const lhTable = new Table({ width:{size:10080,type:WidthType.DXA}, columnWidths:[3600,6480], borders: noBdrs, rows:[new TableRow({children:[logoCell,contactCell]})] });
-  const hrPara = new Paragraph({ children: [], border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "5f259f", space: 4 } }, spacing: { after: 200 } });
+  const hrPara = new Paragraph({ children: [], border: { bottom: { style: BorderStyle.SINGLE, size: 5, color: "4B137D", space: 3 } }, spacing: { after: 80 } });
   return new Header({ children: [lhTable, hrPara] });
 }
 function pageSetup(hasLH) {
-  return { size: { width: 12240, height: 15840 }, margin: { top: hasLH ? 1800 : 1440, right: 1440, bottom: 1440, left: 1440 } };
+  return { size: { width: 12240, height: 15840 }, margin: { top: hasLH ? 1450 : 1080, right: 1080, bottom: 900, left: 1080 } };
 }
 // ---- PARTNERSHIP: RESOLUTION ----
 async function buildPartnershipResolution(d) {
@@ -615,6 +688,7 @@ async function buildPartnershipResolution(d) {
 
 // ---- PARTNERSHIP: BO DECLARATION ----
 async function buildPartnershipBO(d) {
+  const hasLH = d.includeLetterhead && d.firmName;
   const principalCell = d.principalSame === "same" ? "\u2611 Same" : "\u2610 Same   OR " ;
   const boCols = [400, 1100, 1800, 680, 680, 980, 980, 680, 780];
   const threshold = d.isRegistered ? 10 : 15;
@@ -622,7 +696,8 @@ async function buildPartnershipBO(d) {
     ? d.partners.filter((m) => Number(m.share) > threshold)
     : d.partners.filter((m) => m.isAS);
   const doc = new Document({ sections: [{
-    properties: { page: pageSetup(false) },
+    properties: { page: pageSetup(hasLH) },
+    headers: hasLH ? { default: buildLetterheadHeader(d) } : undefined,
     children: [
       new Paragraph({ children: [new TextRun({ text: "DECLARATION OF BENEFICIAL OWNERSHIP (BO) and LIST OF PARTNERS", font: "Times New Roman", size: 26, bold: true, underline: { type: UnderlineType.SINGLE } })], alignment: AlignmentType.CENTER, spacing: { after: 200 } }),
       new Table({ width: { size: 10080, type: WidthType.DXA }, columnWidths: [500, 2500, 7080], rows: [
@@ -788,7 +863,7 @@ async function buildCompanyBO(d) {
       p([t((d.pepStatusBO === "yes" ? "\u2611" : "\u2610") + " YES     " + (d.pepStatusBO === "no" ? "\u2611" : "\u2610") + " NO")]),
       p([t("Authorised Signatory/ies:", { bold: true })]),
       p([t("___________________________(Name, Signature with Stamp)")]),
-      p([u(d.authSignatoryName)]),
+      p([u(d.boExternalAS ? d.boExternalASName : d.authSignatoryName), t(d.boExternalAS ? " (" + d.boExternalASDesignation + ")" : "")]),
       new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }),
       p([t("#Notes:-", { bold: true })]),
       p([t("a. RBI guidelines for identification of Beneficial owners", { bold: true })]),
@@ -935,6 +1010,7 @@ function downloadBlob(blob, filename) {
 
 let previewArtifact = null;
 let previewLibPromise = null;
+let pdfLibPromise = null;
 function loadPreviewLibs() {
   if (previewLibPromise) return previewLibPromise;
   const load = (src) => new Promise((resolve, reject) => {
@@ -948,6 +1024,18 @@ function loadPreviewLibs() {
     if (!window.docx || !window.docx.renderAsync) throw new Error("Word preview library did not load");
   })();
   return previewLibPromise;
+}
+function loadPdfLib() {
+  if (pdfLibPromise) return pdfLibPromise;
+  pdfLibPromise = new Promise((resolve, reject) => {
+    if (window.html2pdf) { resolve(); return; }
+    const script = document.createElement("script");
+    script.src = "./vendor/html2pdf-0.10.2.bundle.min.js";
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+  return pdfLibPromise;
 }
 async function previewDocx(kind) {
   const modal = document.getElementById("previewModal");
@@ -978,6 +1066,33 @@ async function generatePrint(kind) {
     window.print();
   }
 }
+async function downloadPdf(kind) {
+  if (!previewArtifact || !document.getElementById("previewModal").classList.contains("open")) {
+    if (!await previewDocx(kind)) return;
+  }
+  try {
+    await loadPdfLib();
+    const pages = document.querySelectorAll("#previewBody section.docx");
+    if (!pages.length) throw new Error("No preview pages found");
+    const pdfName = previewArtifact.filename.replace(/\.docx$/i, ".pdf");
+    const common = { margin: 0, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" }, jsPDF: { unit: "mm", format: "a4", orientation: "portrait" } };
+    const firstWorker = window.html2pdf().set({ ...common, filename: pdfName }).from(pages[0]).toPdf();
+    const pdf = await firstWorker.get("pdf");
+    for (let index = 1; index < pages.length; index++) {
+      const canvas = await window.html2pdf().set(common).from(pages[index]).toCanvas().get("canvas");
+      const image = canvas.toDataURL("image/jpeg", 0.98);
+      const height = Math.min(297, 210 * canvas.height / canvas.width);
+      pdf.addPage("a4", "portrait");
+      pdf.addImage(image, "JPEG", 0, 0, 210, height);
+    }
+    await pdf.save(pdfName);
+    logToSheet();
+    showToast("PDF download started", "ok");
+  } catch (error) {
+    console.error(error);
+    showToast("PDF error: " + error.message, "er");
+  }
+}
 
 // ============================================================
 // UI RENDERING
@@ -1004,11 +1119,9 @@ function PartnerCardHTML(partner, index, fullKYC) {
     '<button type="button" class="rm-btn" ' + on("click", () => removePartner(partner.id)) + ">Remove</button></div>" +
     '<div class="' + (fullKYC ? "g3" : "g2") + '" style="margin-bottom:10px">' +
       '<div class="f"><label>Full Name *</label><input class="' + (err("name") ? "err" : "") + '" data-fid="name_' + partner.id + '" value="' + attr(partner.name) + '" ' + on("input", (e) => onPartnerChange(partner.id, "name", e.target.value)) + " /></div>" +
-      '<div class="f"><label>Designation *</label><select ' + on("change", (e) => { onPartnerChange(partner.id, "designation", e.target.value); rerender(); }) + ">" +
-        (state.entityType === "company"
-          ? option("Director","Director",partner.designation) + option("Company Secretary","Company Secretary",partner.designation) + option("CEO","CEO",partner.designation) + option("Managing Director","Managing Director",partner.designation)
-          : option("Partner","Partner",partner.designation) + option("Owner","Owner",partner.designation) + option("Authorized Signatory","Authorized Signatory",partner.designation)
-        ) + "</select></div>" +
+      (state.entityType === "company"
+        ? '<div class="f"><label>Designation *</label><select ' + on("change", (e) => { onPartnerChange(partner.id, "designation", e.target.value); rerender(); }) + ">" + option("Director","Director",partner.designation) + option("Company Secretary","Company Secretary",partner.designation) + option("CEO","CEO",partner.designation) + option("Board Chairman","Board Chairman",partner.designation) + option("Managing Director","Managing Director",partner.designation) + "</select></div>"
+        : '<div class="f"><label>Designation</label><input value="Partner" disabled /></div>') +
       (fullKYC ? (
         '<div class="f"><label>PAN *</label><input class="' + (err("pan") ? "err" : "") + '" maxlength="10" value="' + attr(partner.pan) + '" ' + on("input", (e) => onPartnerChange(partner.id, "pan", e.target.value.toUpperCase())) + " /></div>" +
         '<div class="f"><label>DOB *</label><input type="date" class="' + (err("dobRaw") ? "err" : "") + '" value="' + attr(partner.dobRaw) + '" ' + on("input", (e) => onPartnerChange(partner.id, "dobRaw", e.target.value)) + " /></div>" +
@@ -1041,13 +1154,17 @@ function boPepHTML(errs) {
     (errs.pepStatusBO ? '<span class="err-msg">' + esc(errs.pepStatusBO) + '</span>' : '') + '</div>';
 }
 
+function pageActions(back, next) {
+  return '<div class="act">' + (back || '<div></div>') + '<div class="reset-actions"><button class="btn btn-reset" ' + on("click", resetPage) + '>Reset page</button><button class="btn btn-danger" ' + on("click", globalReset) + '>Global reset</button>' + (next || '') + '</div></div>';
+}
+
 function renderApp() {
   computeDerived();
   const errs = state.inlineErrors;
 
   // ---- STEP 0: Agent + Merchant identification ----
   if (state.step === 0) {
-    return '<div class="card"><div class="chd"><h2>\ud83d\udcf1 Agent & Merchant Details</h2><span class="badge">Step 1 of 5</span></div><div class="cbd">' +
+    return '<div class="card"><div class="chd"><h2>\ud83d\udcf1 Agent & Merchant Details</h2><button class="reset-link" ' + on("click", () => resetSection("tracking")) + '>Reset section</button><span class="badge">Step 1 of 5</span></div><div class="cbd">' +
       '<div class="info-blue">Your mobile number is saved permanently on this device \u2014 you will not need to re-enter it next time. Merchant details reset for every new onboarding.</div>' +
       '<div class="g2">' +
         '<div class="f s2"><label>Your Mobile Number (Agent) *</label><input type="tel" inputmode="numeric" maxlength="10" class="' + (errs.agentMobile ? "err" : "") + '" value="' + attr(state.agentMobile) + '" ' + on("input", (e) => { state.agentMobile = e.target.value.replace(/\\D/g,"").slice(0,10); scheduleSave(); }) + ' />' + (errs.agentMobile ? '<span class="err-msg">' + errs.agentMobile + "</span>" : "") + "</div>" +
@@ -1056,15 +1173,15 @@ function renderApp() {
           '<label><input type="radio" name="merchantStatus" ' + (state.merchantStatus === "existing" ? "checked" : "") + " " + on("change", () => { state.merchantStatus = "existing"; rerender(); }) + " /> Existing Merchant</label>" +
         "</div></div>" +
         (state.merchantStatus === "new"
-          ? '<div class="f s2"><label>Establishment / Merchant Display Name *</label><input class="' + (errs.merchantDisplayName ? "err" : "") + '" value="' + attr(state.merchantDisplayName) + '" ' + on("input", (e) => { state.merchantDisplayName = e.target.value; scheduleSave(); }) + ' />' + (errs.merchantDisplayName ? '<span class="err-msg">' + errs.merchantDisplayName + "</span>" : "") + "</div>"
+          ? '<div class="f s2"><label>Merchant Mobile Number *</label><input type="tel" inputmode="numeric" maxlength="10" class="' + (errs.merchantMobile ? "err" : "") + '" value="' + attr(state.merchantMobile) + '" ' + on("input", (e) => { state.merchantMobile = e.target.value.replace(/\D/g,"").slice(0,10); scheduleSave(); }) + ' />' + (errs.merchantMobile ? '<span class="err-msg">' + errs.merchantMobile + "</span>" : "") + "</div>"
           : '<div class="f s2"><label>Merchant ID *</label><input class="' + (errs.merchantId ? "err" : "") + '" value="' + attr(state.merchantId) + '" ' + on("input", (e) => { state.merchantId = e.target.value; scheduleSave(); }) + ' />' + (errs.merchantId ? '<span class="err-msg">' + errs.merchantId + "</span>" : "") + "</div>") +
       "</div></div></div>" +
-      '<div class="act"><div></div><button class="btn btn-p" ' + on("click", () => { if (validateStep0()) { state.step = 1; rerender(); } }) + ">Next: Platform & Entity \u2192</button></div>";
+      pageActions('', '<button class="btn btn-p" ' + on("click", () => { if (validateStep0()) { state.step = 1; rerender(); } }) + '>Next: Platform & Entity \u2192</button>');
   }
 
   // ---- STEP 1: Platform + Entity ----
   if (state.step === 1) {
-    return '<div class="card"><div class="chd"><h2>\ud83c\udfe2 Onboarding Platform & Entity Type</h2><span class="badge">Step 2 of 5</span></div><div class="cbd">' +
+    return '<div class="card"><div class="chd"><h2>\ud83c\udfe2 Onboarding Platform & Entity Type</h2><button class="reset-link" ' + on("click", () => resetSection("platform")) + '>Reset section</button><span class="badge">Step 2 of 5</span></div><div class="cbd">' +
       '<div class="divider">Onboarding Platform</div><div class="rg">' +
         '<label><input type="radio" name="platform" ' + (state.onboardingType === "ace" ? "checked" : "") + " " + on("change", () => { state.onboardingType = "ace"; state.docRequirement = null; rerender(); }) + " /> ACE</label>" +
         '<label><input type="radio" name="platform" ' + (state.onboardingType === "salesforce" ? "checked" : "") + " " + on("change", () => { state.onboardingType = "salesforce"; state.docRequirement = null; rerender(); }) + " /> Salesforce</label>" +
@@ -1073,19 +1190,17 @@ function renderApp() {
         '<label><input type="radio" name="entity" ' + (state.entityType === "partnership" ? "checked" : "") + " " + on("change", () => { state.entityType = "partnership"; state.docRequirement = null; syncDefaultDesignations(); rerender(); }) + " /> Partnership Firm</label>" +
         '<label><input type="radio" name="entity" ' + (state.entityType === "company" ? "checked" : "") + " " + on("change", () => { state.entityType = "company"; state.docRequirement = null; syncDefaultDesignations(); rerender(); }) + " /> Company</label>" +
       "</div></div></div>" +
-      '<div class="act"><button class="btn btn-s" ' + on("click", () => { state.step = 0; rerender(); }) + '>\u2190 Back</button>' +
-      '<button class="btn btn-p" ' + (state.onboardingType && state.entityType ? "" : "disabled") + " " + on("click", () => { if (state.onboardingType && state.entityType) { state.step = 2; rerender(); } }) + ">Next: Document Set \u2192</button></div>";
+      pageActions('<button class="btn btn-s" ' + on("click", () => { state.step = 0; rerender(); }) + '>\u2190 Back</button>', '<button class="btn btn-p" ' + (state.onboardingType && state.entityType ? "" : "disabled") + " " + on("click", () => { if (state.onboardingType && state.entityType) { state.step = 2; rerender(); } }) + '>Next: Document Set \u2192</button>');
   }
 
   // ---- STEP 2: Document requirement ----
   if (state.step === 2) {
     const options = (state.onboardingType && state.entityType) ? docOptionsMap[state.onboardingType][state.entityType] : [];
-    return '<div class="card"><div class="chd"><h2>\ud83d\udcc2 Which documents do you need?</h2><span class="badge">Step 3 of 5</span></div><div class="cbd">' +
+    return '<div class="card"><div class="chd"><h2>\ud83d\udcc2 Which documents do you need?</h2><button class="reset-link" ' + on("click", () => resetSection("documents")) + '>Reset section</button><span class="badge">Step 3 of 5</span></div><div class="cbd">' +
       '<div class="rg" style="flex-direction:column">' + options.map((opt) =>
         '<label><input type="radio" name="docReq" ' + (state.docRequirement === opt.id ? "checked" : "") + " " + on("change", () => { state.docRequirement = opt.id; state.formValidated = false; rerender(); }) + " /> " + opt.label + "</label>"
       ).join("") + "</div></div></div>" +
-      '<div class="act"><button class="btn btn-s" ' + on("click", () => { state.step = 1; rerender(); }) + '>\u2190 Back</button>' +
-      '<button class="btn btn-p" ' + (state.docRequirement ? "" : "disabled") + " " + on("click", () => { if (state.docRequirement) { state.step = 3; rerender(); } }) + ">Next: Fill Details \u2192</button></div>";
+      pageActions('<button class="btn btn-s" ' + on("click", () => { state.step = 1; rerender(); }) + '>\u2190 Back</button>', '<button class="btn btn-p" ' + (state.docRequirement ? "" : "disabled") + " " + on("click", () => { if (state.docRequirement) { state.step = 3; rerender(); } }) + '>Next: Fill Details \u2192</button>');
   }
 
   // ---- STEP 3: Data entry (firm, letterhead, partners, resolution, BO, MDF) ----
@@ -1093,7 +1208,7 @@ function renderApp() {
     const isFullKyc = needsFullKYC(state.docRequirement);
     const docLabel = (docOptionsMap[state.onboardingType][state.entityType].find(o => o.id === state.docRequirement) || {}).label || "";
     return (
-      '<div class="card"><div class="chd"><h2>\ud83c\udfe2 Entity Details</h2><span class="badge">' + esc(docLabel) + '</span></div><div class="cbd">' +
+      '<div class="card"><div class="chd"><h2>\ud83c\udfe2 Entity Details</h2><button class="reset-link" ' + on("click", () => resetSection("entity")) + '>Reset section</button><span class="badge">' + esc(docLabel) + '</span></div><div class="cbd">' +
         '<div class="info">This information is captured once and reused across every document you generate for this merchant.</div>' +
         '<div class="g2">' +
           '<div class="f s2"><label>Legal Entity / Firm Name (as on PAN) *</label><input class="' + (errs.firmName ? "err" : "") + '" value="' + attr(state.firmName) + '" ' + on("input", (e) => { state.firmName = e.target.value; scheduleSave(); }) + " /><span class=\"hint\">Must match Business PAN Card exactly.</span></div>" +
@@ -1110,7 +1225,7 @@ function renderApp() {
         '<div class="divider">Letterhead (optional \u2014 embedded in the Word document header)</div>' +
         '<div class="cg" style="margin-bottom:10px"><label><input type="checkbox" ' + (state.includeLetterhead ? "checked" : "") + " " + on("change", (e) => { state.includeLetterhead = e.target.checked; rerender(); }) + " /> Embed letterhead in generated documents</label></div>" +
         (state.includeLetterhead ? '<div class="g2">' +
-          '<div class="f"><label>Tagline</label><input value="' + attr(state.lhTagline) + '" ' + on("input", (e) => { state.lhTagline = e.target.value; scheduleSave(); }) + " /></div>" +
+          '<div class="f"><label>Tagline *</label><input class="' + (errs.lhTagline ? "err" : "") + '" value="' + attr(state.lhTagline) + '" ' + on("input", (e) => { state.lhTagline = e.target.value; scheduleSave(); }) + " /></div>" +
           '<div class="f"><label>Phone</label><input value="' + attr(state.lhPhone) + '" ' + on("input", (e) => { state.lhPhone = e.target.value; scheduleSave(); }) + " /></div>" +
           '<div class="f"><label>Email</label><input value="' + attr(state.lhEmail) + '" ' + on("input", (e) => { state.lhEmail = e.target.value; scheduleSave(); }) + " /></div>" +
           '<div class="f"><label>Website</label><input value="' + attr(state.lhWebsite) + '" ' + on("input", (e) => { state.lhWebsite = e.target.value; scheduleSave(); }) + " /></div>" +
@@ -1119,7 +1234,7 @@ function renderApp() {
 
       // Partners / Directors
       (needsResolution(state.docRequirement) || needsBO(state.docRequirement) ? (
-        '<div class="card"><div class="chd"><h2>\ud83d\udc65 ' + (state.entityType === "company" ? "Directors" : "Partners") + '</h2></div><div class="cbd">' +
+        '<div class="card"><div class="chd"><h2>\ud83d\udc65 ' + (state.entityType === "company" ? "Directors" : "Partners") + '</h2><button class="reset-link" ' + on("click", () => resetSection("members")) + ' >Reset section</button></div><div class="cbd">' +
           '<div class="info">' + (isFullKyc ? "Full KYC required: PAN, DOB, Address, Proof of Address, % ownership. Total ownership must equal 100%." : "Basic details only for this document set.") + "</div>" +
           state.partners.map((pt, idx) => PartnerCardHTML(pt, idx, isFullKyc)).join("") +
           (errs.shareTotal ? '<div class="error-box">' + esc(errs.shareTotal) + "</div>" : "") +
@@ -1130,7 +1245,7 @@ function renderApp() {
 
       // Resolution details
       (needsResolution(state.docRequirement) ? (
-        '<div class="card"><div class="chd"><h2>\ud83d\udccb Resolution Meeting Details</h2></div><div class="cbd">' +
+        '<div class="card"><div class="chd"><h2>\ud83d\udccb ' + (state.entityType === "partnership" ? "Partner Resolution" : "Board Resolution") + ' Details</h2><button class="reset-link" ' + on("click", () => resetSection("resolution")) + '>Reset section</button></div><div class="cbd">' +
           '<div class="g2">' +
             '<div class="f"><label>Meeting Date *</label><input type="date" class="' + (errs.resolutionDateRaw ? "err" : "") + '" value="' + attr(state.resolutionDateRaw) + '" ' + on("change", (e) => { state.resolutionDateRaw = e.target.value; state.boDate = state.boDate || e.target.value; scheduleSave(); }) + " /></div>" +
             '<div class="f"><label>Meeting Time *</label><input type="time" class="' + (errs.resolutionTimeRaw ? "err" : "") + '" value="' + attr(state.resolutionTimeRaw) + '" ' + on("change", (e) => { state.resolutionTimeRaw = e.target.value; scheduleSave(); }) + " /></div>" +
@@ -1140,13 +1255,14 @@ function renderApp() {
           (errs.presentPartnerIds ? '<div class="error-box">' + esc(errs.presentPartnerIds) + "</div>" : "") +
           (errs.presentShare ? '<div class="error-box">' + esc(errs.presentShare) + "</div>" : "") +
           state.partners.map((pt) => '<label class="rg" style="justify-content:flex-start"><input type="checkbox" ' + (state.presentPartnerIds.includes(pt.id) ? "checked" : "") + " " + on("change", (e) => togglePresentPartner(pt.id, e.target.checked)) + " /> " + esc(pt.name || "(unnamed)") + (pt.isAS ? " \u2705" : "") + "</label>").join("") +
+          (state.entityType === "company" ? '<div class="signature-rule">The resolution must be certified and signed at the bottom panel by: 1) Company Secretary, 2) CEO, 3) Board Chairman, 4) Managing Director, or 5) any 2 attending Directors.</div><div class="cg"><label><input type="checkbox" ' + (state.isOPC ? "checked" : "") + ' ' + on("change", (e) => { state.isOPC = e.target.checked; rerender(); }) + ' /> This is a One Person Company (OPC)</label></div>' + (state.isOPC ? '<div class="cg" style="margin-top:8px"><label><input type="checkbox" ' + (state.opcApprovalConfirmed ? "checked" : "") + ' ' + on("change", (e) => { state.opcApprovalConfirmed = e.target.checked; scheduleSave(); }) + ' /> Approval obtained over email *</label></div>' : '') + (errs.companySigners ? '<div class="error-box">'+esc(errs.companySigners)+'</div>' : '') + (errs.opcApprovalConfirmed ? '<div class="error-box">'+esc(errs.opcApprovalConfirmed)+'</div>' : '') : '') +
           resolutionDeclarationsHTML(errs) +
         "</div></div>"
       ) : "") +
 
       // BO details
       (needsBO(state.docRequirement) ? (
-        '<div class="card"><div class="chd"><h2>\ud83d\udcdc BO Declaration Details</h2></div><div class="cbd">' +
+        '<div class="card"><div class="chd"><h2>\ud83d\udcdc BO Declaration Details</h2><button class="reset-link" ' + on("click", () => resetSection("bo")) + '>Reset section</button></div><div class="cbd">' +
           '<div class="g2">' +
             '<div class="f"><label>BO Declaration Date *</label><input type="date" class="' + (errs.boDate ? "err" : "") + '" value="' + attr(state.boDate) + '" ' + on("change", (e) => { state.boDate = e.target.value; scheduleSave(); }) + " /></div>" +
           "</div>" +
@@ -1156,18 +1272,19 @@ function renderApp() {
           "</div>" + (errs.boCategory ? '<span class="err-msg">'+esc(errs.boCategory)+'</span>' : '') +
           (state.entityType === "company" ? '<div class="divider">Company Listing Status</div><div class="f"><select ' + on("change", (e) => { state.companyListingStatus = e.target.value; rerender(); }) + '>' + option("not_listed","Not listed / BO details applicable",state.companyListingStatus) + option("listed_india","Listed on an Indian stock exchange",state.companyListingStatus) + option("listed_foreign","Listed in a notified foreign jurisdiction",state.companyListingStatus) + option("subsidiary","Subsidiary of a listed entity",state.companyListingStatus) + '</select></div>' + (state.companyListingStatus !== "not_listed" ? '<div class="f" style="margin-top:8px"><label>Stock Exchange Name *</label><input class="'+(errs.stockExchangeName?"err":"")+'" value="'+attr(state.stockExchangeName)+'" '+on("input",(e)=>{state.stockExchangeName=e.target.value;scheduleSave();})+' /></div>' : '') : '') +
           boPepHTML(errs) +
+          (state.entityType === "company" ? '<div class="divider">BO Authorised Signatory</div><div class="cg"><label><input type="checkbox" ' + (state.boExternalAS ? "checked" : "") + ' ' + on("change", (e) => { state.boExternalAS = e.target.checked; rerender(); }) + ' /> Authorised signatory is not a board member</label></div>' + (state.boExternalAS ? '<div class="g2" style="margin-top:10px"><div class="f"><label>Name *</label><input class="'+(errs.boExternalASName?"err":"")+'" value="'+attr(state.boExternalASName)+'" '+on("input",(e)=>{state.boExternalASName=e.target.value;scheduleSave();})+' /></div><div class="f"><label>Designation *</label><input class="'+(errs.boExternalASDesignation?"err":"")+'" value="'+attr(state.boExternalASDesignation)+'" '+on("input",(e)=>{state.boExternalASDesignation=e.target.value;scheduleSave();})+' /></div></div>' : '') : '') +
         "</div></div>"
       ) : "") +
 
       // MDF details
       (needsMDF(state.docRequirement) ? (
-        '<div class="card"><div class="chd"><h2>\ud83d\udcc4 Merchant Declaration Form (MDF)</h2></div><div class="cbd">' +
+        '<div class="card"><div class="chd"><h2>\ud83d\udcc4 Merchant Declaration Form (MDF)</h2><button class="reset-link" ' + on("click", () => resetSection("mdf")) + '>Reset section</button></div><div class="cbd">' +
           '<div class="g2">' +
             '<div class="f"><label>Signatory Name *</label><input class="' + (errs.mdfAuthName ? "err" : "") + '" value="' + attr(state.mdfAuthName) + '" ' + on("input", (e) => { state.mdfAuthName = e.target.value; scheduleSave(); }) + " /></div>" +
             '<div class="f"><label>Signatory Designation *</label><input class="' + (errs.mdfAuthDesignation ? "err" : "") + '" value="' + attr(state.mdfAuthDesignation) + '" ' + on("input", (e) => { state.mdfAuthDesignation = e.target.value; scheduleSave(); }) + " /></div>" +
             '<div class="f"><label>Signatory PAN *</label><input class="' + (errs.mdfAuthPan ? "err" : "") + '" maxlength="10" value="' + attr(state.mdfAuthPan) + '" ' + on("input", (e) => { state.mdfAuthPan = e.target.value.toUpperCase(); scheduleSave(); }) + " /></div>" +
             '<div class="f"><label>Mobile Number *</label><input type="tel" maxlength="10" class="' + (errs.mdfMobile ? "err" : "") + '" value="' + attr(state.mdfMobile) + '" ' + on("input", (e) => { state.mdfMobile = e.target.value.replace(/\\D/g,"").slice(0,10); scheduleSave(); }) + " /></div>" +
-            '<div class="f"><label>Email *</label><input type="email" class="' + (errs.mdfEmail ? "err" : "") + '" value="' + attr(state.mdfEmail) + '" ' + on("input", (e) => { state.mdfEmail = e.target.value; scheduleSave(); }) + " /></div>" +
+            '<div class="f"><label>Email' + (state.onboardingType === "salesforce" ? " *" : " (optional)") + '</label><input type="email" class="' + (errs.mdfEmail ? "err" : "") + '" value="' + attr(state.mdfEmail) + '" ' + on("input", (e) => { state.mdfEmail = e.target.value; scheduleSave(); }) + " /></div>" +
             '<div class="f"><label>Person with Disability?</label><select ' + on("change",(e)=>{state.mdfPwd=e.target.value;rerender();}) + '>' + option("no","No",state.mdfPwd)+option("yes","Yes",state.mdfPwd)+'</select></div>' +
             (state.mdfPwd === "yes" ? '<div class="f"><label>Disability Type *</label><input value="'+attr(state.mdfPwdType)+'" '+on("input",(e)=>{state.mdfPwdType=e.target.value;scheduleSave();})+' /></div><div class="f"><label>Disability Percentage *</label><input type="number" min="1" max="100" class="'+(errs.mdfPwdPct?"err":"")+'" value="'+attr(state.mdfPwdPct)+'" '+on("input",(e)=>{state.mdfPwdPct=e.target.value;scheduleSave();})+' /></div>' : '') +
             '<div class="f"><label>TAN Status</label><select ' + on("change", (e) => { state.mdfTanStatus = e.target.value; rerender(); }) + ">" + option("no_tan","Not liable for TAN",state.mdfTanStatus) + option("has_tan","Holds TAN",state.mdfTanStatus) + "</select></div>" +
@@ -1186,8 +1303,7 @@ function renderApp() {
         "</div></div>"
       ) : "") +
 
-      '<div class="act"><button class="btn btn-s" ' + on("click", () => { state.step = 2; rerender(); }) + '>\u2190 Back</button>' +
-      '<button class="btn btn-p" ' + on("click", () => { validateDataEntry(); if (state.formValidated) { state.step = 4; rerender(); } }) + ">Review & Generate \u2192</button></div>"
+      pageActions('<button class="btn btn-s" ' + on("click", () => { state.step = 2; rerender(); }) + '>\u2190 Back</button>', '<button class="btn btn-p" ' + on("click", () => { validateDataEntry(); if (state.formValidated) { state.step = 4; rerender(); } }) + '>Review & Generate \u2192</button>')
     );
   }
 
@@ -1198,7 +1314,7 @@ function renderApp() {
       '<table class="rtbl">' +
         '<tr class="hd"><td colspan="2">MERCHANT</td></tr>' +
         '<tr><td>Agent Mobile</td><td>' + esc(state.agentMobile) + "</td></tr>" +
-        '<tr><td>' + (state.merchantStatus === "new" ? "Establishment Name" : "Merchant ID") + '</td><td>' + esc(state.merchantStatus === "new" ? state.merchantDisplayName : state.merchantId) + "</td></tr>" +
+        '<tr><td>' + (state.merchantStatus === "new" ? "Merchant Mobile" : "Merchant ID") + '</td><td>' + esc(state.merchantStatus === "new" ? state.merchantMobile : state.merchantId) + "</td></tr>" +
         '<tr class="hd"><td colspan="2">ENTITY</td></tr>' +
         '<tr><td>Documents</td><td><strong>' + esc(docLabel) + "</strong></td></tr>" +
         '<tr><td>Legal Name</td><td>' + esc(state.firmName) + "</td></tr>" +
@@ -1206,13 +1322,12 @@ function renderApp() {
         (needsResolution(state.docRequirement) ? '<tr><td>Authorised Signatory</td><td>' + esc(formData.authSignatoryName) + "</td></tr>" : "") +
       "</table></div></div>" +
       '<div class="gen-box">' +
-        '<h3>\ud83c\udf89 Ready to Generate</h3><p>Download real Word (.docx) files, or use Print to save as PDF. Print &amp; sign on the firm/company letterhead if not embedded.</p>' +
-        (needsResolution(state.docRequirement) ? '<div class="doc-group"><h4>Resolution</h4><div class="doc-btns"><button class="btn btn-s" ' + on("click", () => previewDocx("resolution")) + '>Preview Word</button><button class="btn btn-p" ' + on("click", () => generateDocx("resolution")) + '>\ud83d\udcc4 Download .docx</button><button class="btn btn-s" ' + on("click", () => generatePrint("resolution")) + ">\ud83d\uddb6 Print / PDF</button></div></div>" : "") +
-        (needsBO(state.docRequirement) ? '<div class="doc-group"><h4>BO Declaration</h4><div class="doc-btns"><button class="btn btn-s" ' + on("click", () => previewDocx("bo")) + '>Preview Word</button><button class="btn btn-g" ' + on("click", () => generateDocx("bo")) + '>\ud83d\udccb Download .docx</button><button class="btn btn-s" ' + on("click", () => generatePrint("bo")) + ">\ud83d\uddb6 Print / PDF</button></div></div>" : "") +
-        (needsMDF(state.docRequirement) ? '<div class="doc-group"><h4>' + (state.onboardingType === "ace" ? "ACE OSV / MDF" : "MDF") + '</h4><div class="doc-btns"><button class="btn btn-s" ' + on("click", () => previewDocx("mdf")) + '>Preview Word</button><button class="btn btn-gold" ' + on("click", () => generateDocx("mdf")) + '>\ud83d\udcc4 Download .docx</button><button class="btn btn-s" ' + on("click", () => generatePrint("mdf")) + ">\ud83d\uddb6 Print / PDF</button></div></div>" : "") +
+        '<h3>\ud83c\udf89 Ready to Generate</h3><p>Preview, download Word, or download a clean A4 PDF. Print remains available inside preview.</p>' +
+        (needsResolution(state.docRequirement) ? '<div class="doc-group"><h4>' + (state.entityType === "partnership" ? "Partner Resolution" : "Board Resolution") + '</h4><div class="doc-btns"><button class="btn btn-s" ' + on("click", () => previewDocx("resolution")) + '>Preview</button><button class="btn btn-p" ' + on("click", () => generateDocx("resolution")) + '>Download .docx</button><button class="btn btn-g" ' + on("click", () => downloadPdf("resolution")) + '>Download PDF</button></div></div>' : '') +
+        (needsBO(state.docRequirement) ? '<div class="doc-group"><h4>BO Declaration</h4><div class="doc-btns"><button class="btn btn-s" ' + on("click", () => previewDocx("bo")) + '>Preview</button><button class="btn btn-p" ' + on("click", () => generateDocx("bo")) + '>Download .docx</button><button class="btn btn-g" ' + on("click", () => downloadPdf("bo")) + '>Download PDF</button></div></div>' : '') +
+        (needsMDF(state.docRequirement) ? '<div class="doc-group"><h4>' + (state.onboardingType === "ace" ? "ACE OSV / MDF" : "MDF") + '</h4><div class="doc-btns"><button class="btn btn-s" ' + on("click", () => previewDocx("mdf")) + '>Preview</button><button class="btn btn-p" ' + on("click", () => generateDocx("mdf")) + '>Download .docx</button><button class="btn btn-g" ' + on("click", () => downloadPdf("mdf")) + '>Download PDF</button></div></div>' : '') +
       "</div>" +
-      '<div class="act"><button class="btn btn-s" ' + on("click", () => { state.step = 3; rerender(); }) + '>\u2190 Back to Edit</button>' +
-      '<button class="btn btn-red" ' + on("click", clearMerchantData) + ">\ud83d\uddd1 Start New Merchant</button></div>";
+      '<div class="act"><button class="btn btn-s" ' + on("click", () => { state.step = 3; rerender(); }) + '>\u2190 Back to Edit</button><div class="reset-actions"><button class="btn btn-reset" ' + on("click", clearMerchantData) + '>Start new merchant</button><button class="btn btn-danger" ' + on("click", globalReset) + '>Global reset</button></div></div>';
   }
 
   return "";
@@ -1234,6 +1349,7 @@ document.getElementById("previewPrint").addEventListener("click", () => {
   logToSheet();
   window.print();
 });
+document.getElementById("previewPdf").addEventListener("click", () => downloadPdf());
 document.getElementById("previewModal").addEventListener("click", (event) => {
   if (event.target.id === "previewModal") closePreview();
 });

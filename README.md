@@ -21,8 +21,7 @@ document (Partner/Board Resolution, BO Declaration, MDF) as real Word
 - Data you enter is auto-saved to `localStorage` as you type, so agents can
   close the tab and resume later without losing progress.
 - Two storage buckets are kept separate:
-  - **Agent mobile number** — saved *permanently* on the device. Never
-    cleared automatically.
+  - **Agent mobile number** — saved permanently until Global Reset is used.
   - **Merchant/entity data** (firm name, partners, resolution/BO details,
     etc.) — cleared only when the agent taps "Start New Merchant".
 - Information is captured exactly once and reused across every document in
@@ -33,6 +32,9 @@ document (Partner/Board Resolution, BO Declaration, MDF) as real Word
   version-pinned `docx-preview` and `JSZip` libraries. Microsoft Word may
   paginate a document slightly differently, so the UI labels it as an
   approximate Word preview.
+- Section Reset clears one card, Page Reset clears the active page, and
+  Global Reset clears all merchant data plus the permanently saved agent
+  mobile after confirmation.
 
 ## Hosting
 
@@ -53,7 +55,7 @@ No build step, no `npm install`, no server process to keep alive.
 Per your requirement, the Sheet is used purely as an append-only log of:
 
 1. Agent's mobile number
-2. Merchant Display Name (new merchant) or Merchant ID (existing merchant)
+2. Merchant Mobile Number (new merchant) or Merchant ID (existing merchant)
 
 **Note on Workspace-restricted deployments:** most corporate Google
 Workspace accounts don't offer a fully public "Anyone" access level for
@@ -93,9 +95,9 @@ skips logging.
 |------------|-------------|---------------------------------------------------|
 | ACE        | Partnership | Partner Resolution, BO Declaration, or both       |
 | ACE        | Company     | Board Resolution, BO Declaration, or both         |
-| ACE        | Partnership | Resolution + BO Declaration + ACE OSV/MDF          |
+| ACE        | Partnership | Partner Resolution + BO Declaration + ACE OSV/MDF  |
 | ACE        | Company     | Board Resolution + BO Declaration + ACE OSV/MDF    |
-| Salesforce | Partnership | Resolution, BO Declaration, MDF, or all three     |
+| Salesforce | Partnership | Partner Resolution, BO Declaration, MDF, or all three |
 | Salesforce | Company     | Board Resolution, BO Declaration, MDF, or all three |
 
 For every document you can either:
@@ -103,8 +105,8 @@ For every document you can either:
 - **Download .docx** — a real, properly formatted Word file (tables,
   checkboxes, underlined filled-in values, optional letterhead header),
   generated entirely client-side.
-- **Print / PDF** — opens the browser print dialog so the agent can save
-  directly as a PDF if that's more convenient on a particular device.
+- **Download PDF** — generates a clean A4 PDF without browser URL/date
+  headers. Traditional Print remains available from Preview.
 - **Preview Word** — renders the generated Word file inside the app before
   download. Preview libraries load only when requested to keep initial load
   light on low-end devices.

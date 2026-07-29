@@ -86,6 +86,11 @@ header p{color:rgba(255,255,255,.75);font-size:11px;margin-top:1px}
 .btn-g{background:linear-gradient(135deg,#1a7a4a,#22a060);color:#fff;box-shadow:0 4px 14px rgba(26,122,74,.28)}
 .btn-gold{background:linear-gradient(135deg,#c8962a,#e0ac3d);color:#fff}
 .btn-red{background:#fff;color:var(--red);border:2px solid var(--red);font-size:12px;padding:8px 14px}
+.btn-reset{background:#fff;color:#58566a;border:1px solid #c9c8d2}
+.btn-danger{background:#fff;color:var(--red);border:1px solid #dfb4b1}
+.reset-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.reset-link{margin-left:auto;background:none;border:0;color:var(--pe);font:inherit;font-size:11px;font-weight:700;cursor:pointer;text-decoration:underline}
+.signature-rule{margin:12px 0;padding:10px 12px;border-left:4px solid var(--red);background:#fff1f0;color:var(--red);font-size:12px;font-weight:700;line-height:1.45}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn-full{width:100%}
 
@@ -118,7 +123,10 @@ header p{color:rgba(255,255,255,.75);font-size:11px;margin-top:1px}
 .preview-body .docx-wrapper{background:transparent!important;padding:0!important}
 .preview-body section.docx{margin:0 auto 18px!important;box-shadow:0 5px 22px rgba(0,0,0,.14)!important}
 .preview-loading{display:grid;place-items:center;min-height:50vh;color:var(--muted);font-weight:650}
-@media(max-width:600px){header{padding:11px 12px}.wrap{padding:15px 10px 82px}.saved{display:none}.cbd{padding:14px}.act{position:sticky;bottom:0;background:rgba(243,244,248,.95);padding:10px 0;z-index:20}.act .btn{flex:1}.doc-btns{display:grid;grid-template-columns:1fr 1fr}.doc-btns .btn{width:100%;padding:10px 8px}.preview-modal{padding:0}.preview-shell{border-radius:0}.preview-head{flex-wrap:wrap}.preview-note{width:100%;order:3}.preview-body{padding:8px}.preview-body section.docx{transform-origin:top left}}
+.pdf-export{position:fixed;left:-100000px;top:0;width:210mm;background:#fff}
+.pdf-export section.docx{width:210mm!important;min-height:297mm!important;margin:0!important;box-shadow:none!important;break-after:page;page-break-after:always}
+.pdf-export section.docx:last-child{break-after:auto;page-break-after:auto}
+@media(max-width:600px){header{padding:11px 12px}.wrap{padding:15px 10px 82px}.saved{display:none}.cbd{padding:14px}.act{position:sticky;bottom:0;background:rgba(243,244,248,.95);padding:10px 0;z-index:20}.act>.btn{flex:1}.reset-actions{width:100%}.reset-actions .btn{flex:1}.doc-btns{display:grid;grid-template-columns:1fr 1fr}.doc-btns .btn{width:100%;padding:10px 8px}.preview-modal{padding:0}.preview-shell{border-radius:0}.preview-head{flex-wrap:wrap}.preview-note{width:100%;order:3}.preview-body{padding:8px}.preview-body section.docx{transform-origin:top left}}
 @media print{body>*:not(#previewModal){display:none!important}#previewModal{position:static!important;display:block!important;background:#fff!important;padding:0!important}#previewModal .preview-shell{display:block!important;width:auto!important;box-shadow:none!important;border-radius:0!important;background:#fff!important}.preview-head{display:none!important}.preview-body{overflow:visible!important;padding:0!important}.preview-body .docx-wrapper{padding:0!important}.preview-body section.docx{box-shadow:none!important;margin:0 auto!important}}
 </style>
 </head>
@@ -141,13 +149,14 @@ header p{color:rgba(255,255,255,.75);font-size:11px;margin-top:1px}
     <div class="preview-head">
       <h2 id="previewTitle">Word document preview</h2>
       <button class="btn btn-p" id="previewDownload" type="button">Download .docx</button>
-      <button class="btn btn-s" id="previewPrint" type="button">Print / PDF</button>
+      <button class="btn btn-g" id="previewPdf" type="button">Download PDF</button>
+      <button class="btn btn-s" id="previewPrint" type="button">Print</button>
       <button class="btn btn-s" id="previewClose" type="button">Close</button>
       <div class="preview-note">Approximate Word preview. Final page breaks can vary slightly in Microsoft Word.</div>
     </div>
     <div class="preview-body" id="previewBody"><div class="preview-loading">Preparing preview…</div></div>
   </div>
 </div>
-<script type="module" src="./app.js?v=2"></script>
+<script type="module" src="./app.js?v=3"></script>
 </body>
 </html>
