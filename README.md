@@ -27,6 +27,11 @@ document (Partner/Board Resolution, BO Declaration, MDF) as real Word
 - Information is captured exactly once and reused across every document in
   the selected set (e.g. firm name, address, partner list, letterhead are
   shared between the Resolution and the BO Declaration).
+- Partnership Resolution captures ownership even when generated alone and
+  blocks generation unless selected signing partners hold at least 50%
+  collectively. The UI shows the selected total and deed/upload guidance.
+- Letterhead uses the legal firm name and main-office address directly;
+  duplicate tagline, phone, email and website fields are not required.
 - Word documents can be reviewed in the application before download. The
   preview renders the exact generated DOCX blob using lazily loaded,
   version-pinned `docx-preview` and `JSZip` libraries. Microsoft Word may

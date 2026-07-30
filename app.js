@@ -44,7 +44,6 @@ const state = {
   firmName: "",
   regAddress: "",
   includeLetterhead: true,
-  lhTagline: "", lhPhone: "", lhEmail: "", lhWebsite: "",
   principalSame: "same",
   principalAddress: "",
   partnershipRegType: "registered",
@@ -64,7 +63,7 @@ const state = {
   // BO
   boDate: "",
   boCategory: "cat1",
-  pepStatusBO: "",
+  pepStatusBO: "no",
   companyListingStatus: "not_listed",
   stockExchangeName: "",
   boExternalAS: false,
@@ -127,6 +126,7 @@ const needsResolution = (set) => ["set1","set3","set4","set5","set7","set8","set
 const needsBO         = (set) => ["set2","set3","set4","set6","set7","set8","set10","set12","set14","set16"].includes(set);
 const needsMDF        = (set) => ["set4","set8","set11","set12","set15","set16"].includes(set);
 const needsFullKYC    = (set) => needsBO(set);
+const needsOwnership = (set) => needsBO(set) || needsResolution(set);
 
 // ---- STORAGE ----
 function loadAgent() {
@@ -150,6 +150,11 @@ function loadMerchant() {
     if (!state.pepStatusRes && typeof d.pepDeclarationRes === "boolean") state.pepStatusRes = d.pepDeclarationRes ? "no" : "yes";
     if (!state.pepStatusBO && typeof d.pepDeclarationBO === "boolean") state.pepStatusBO = d.pepDeclarationBO ? "no" : "yes";
     if (!state.mdfPepStatus && typeof d.mdfPepConfirm === "boolean") state.mdfPepStatus = d.mdfPepConfirm ? "no" : "yes";
+    if (!state.naturalPersons) state.naturalPersons = "yes";
+    if (!state.pepStatusRes) state.pepStatusRes = "no";
+    if (!state.pepStatusBO) state.pepStatusBO = "no";
+    // v4 letterhead uses the legal firm name and main-office address directly.
+    delete state.lhTagline; delete state.lhPhone; delete state.lhEmail; delete state.lhWebsite;
   } catch (e) {}
 }
 function saveMerchant() {
@@ -184,10 +189,10 @@ function resetSection(section) {
   if (section === "tracking") Object.assign(state, { merchantStatus: "new", merchantMobile: "", merchantId: "", loggedThisSession: false });
   if (section === "platform") Object.assign(state, { onboardingType: null, entityType: null, docRequirement: null });
   if (section === "documents") Object.assign(state, { docRequirement: null });
-  if (section === "entity") Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, lhTagline: "", lhPhone: "", lhEmail: "", lhWebsite: "", principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "" });
+  if (section === "entity") Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "" });
   if (section === "members") Object.assign(state, { partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [] });
   if (section === "resolution") Object.assign(state, { resolutionDateRaw: "", resolutionTimeRaw: "", naturalPersons: "yes", pepStatusRes: "no", presentPartnerIds: [], isOPC: false, opcApprovalConfirmed: false });
-  if (section === "bo") Object.assign(state, { boDate: "", boCategory: "cat1", pepStatusBO: "", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "" });
+  if (section === "bo") Object.assign(state, { boDate: "", boCategory: "cat1", pepStatusBO: "no", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "" });
   if (section === "mdf") Object.assign(state, { mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
   state.inlineErrors = {};
   state.formValidated = false;
@@ -202,7 +207,7 @@ function resetPage() {
   if (state.step === 1) Object.assign(state, { onboardingType: null, entityType: null, docRequirement: null });
   if (state.step === 2) state.docRequirement = null;
   if (state.step === 3) {
-    Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, lhTagline: "", lhPhone: "", lhEmail: "", lhWebsite: "", principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "", partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [], resolutionDateRaw: "", resolutionTimeRaw: "", naturalPersons: "yes", pepStatusRes: "no", isOPC: false, opcApprovalConfirmed: false, boDate: "", boCategory: "cat1", pepStatusBO: "", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "", mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
+    Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "", partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [], resolutionDateRaw: "", resolutionTimeRaw: "", naturalPersons: "yes", pepStatusRes: "no", isOPC: false, opcApprovalConfirmed: false, boDate: "", boCategory: "cat1", pepStatusBO: "no", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "", mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
   }
   state.inlineErrors = {};
   state.formValidated = false;
@@ -449,7 +454,6 @@ function validateDataEntry() {
 
   if (!state.firmName.trim()) addError("Legal name is required.", "firmName");
   if (!state.regAddress.trim()) addError("Registered address is required.", "regAddress");
-  if (state.includeLetterhead && !state.lhTagline.trim()) addError("Tagline is required when letterhead is enabled.", "lhTagline");
   if (state.principalSame === "diff" && !state.principalAddress.trim()) addError("Principal office address is required.", "principalAddress");
 
   if (needsResolution(state.docRequirement) || needsBO(state.docRequirement)) {
@@ -459,6 +463,7 @@ function validateDataEntry() {
 
     let totalShare = 0;
     const requiresFull = needsFullKYC(state.docRequirement);
+    const requiresOwnership = needsOwnership(state.docRequirement);
     state.partners.forEach((partner, index) => {
       const label = "Member " + (index + 1) + ": ";
       if (!partner.name.trim()) addError(label + "Name is required.", "name_" + partner.id);
@@ -469,11 +474,13 @@ function validateDataEntry() {
         if (!partner.address.trim()) addError(label + "Address required.", "address_" + partner.id);
         if (!partner.poaNum) addError(label + "Proof number required.", "poaNum_" + partner.id);
         else if (partner.poa === "AADHAAR" && !AADHAAR_LAST4.test(partner.poaNum)) addError(label + "Aadhaar proof must be exactly last 4 digits.", "poaNum_" + partner.id);
+      }
+      if (requiresOwnership) {
         if (partner.share === "") addError(label + "Share % required.", "share_" + partner.id);
         else totalShare += Number(partner.share || 0);
       }
     });
-    if (requiresFull && Math.abs(totalShare - 100) > 0.6) {
+    if (requiresOwnership && Math.abs(totalShare - 100) > 0.6) {
       addError("Total shareholding must equal exactly 100% (currently " + totalShare.toFixed(1) + "%).", "shareTotal");
     }
   }
@@ -485,6 +492,8 @@ function validateDataEntry() {
     if (state.entityType === "partnership") {
       if (!state.naturalPersons) addError("Select the natural-person ownership declaration.", "naturalPersons");
       if (!state.pepStatusRes) addError("Select Yes or No for the resolution PEP declaration.", "pepStatusRes");
+      const signingShare = state.partners.filter((partner) => state.presentPartnerIds.includes(partner.id)).reduce((sum, partner) => sum + Number(partner.share || 0), 0);
+      if (signingShare < 50) addError("Selected signing partners must collectively hold at least 50% ownership (currently " + signingShare.toFixed(1) + "%).", "presentShare");
     }
     if (state.entityType === "company") {
       const selected = state.partners.filter((partner) => state.presentPartnerIds.includes(partner.id));
@@ -599,13 +608,9 @@ function buildLetterheadHeader(lh) {
   const logoCell = new TableCell({ borders: noBdrs, width: { size: 3600, type: WidthType.DXA }, margins: { top:0,bottom:0,left:0,right:200 },
     children: [
       new Paragraph({ children: [new TextRun({ text: lh.firmName||"", font:"Times New Roman", size:34, bold:true, color:"4B137D" })], spacing:{after:20} }),
-      ...(lh.lhTagline ? [new Paragraph({ children:[lt(lh.lhTagline,{italics:true,color:"555555",bold:true})], spacing:{after:0} })] : []),
     ]});
   const contactLines = [
-    lh.regAddress ? "Regd Office: " + lh.regAddress : null,
-    lh.lhPhone ? "Phone: " + lh.lhPhone : null,
-    lh.lhEmail ? "Email: " + lh.lhEmail : null,
-    lh.lhWebsite ? "Website: " + lh.lhWebsite : null,
+    lh.regAddress ? "Main Office: " + lh.regAddress : null,
   ].filter(Boolean);
   const contactCell = new TableCell({ borders: noBdrs, width: { size: 6480, type: WidthType.DXA }, margins:{top:0,bottom:0,left:200,right:0},
     children: contactLines.map((line) => new Paragraph({ children:[lt(line)], alignment: AlignmentType.RIGHT, spacing:{after:20} })) });
@@ -1128,9 +1133,9 @@ function PartnerCardHTML(partner, index, fullKYC) {
         '<div class="f s2 s3"><label>Residential Address & PIN *</label><input class="' + (err("address") ? "err" : "") + '" value="' + attr(partner.address) + '" ' + on("input", (e) => onPartnerChange(partner.id, "address", e.target.value)) + " /></div>" +
         '<div class="f"><label>Proof Type *</label><select ' + on("change", (e) => { onPartnerChange(partner.id, "poa", e.target.value); onPartnerChange(partner.id, "poaNum", ""); rerender(); }) + ">" + option("AADHAAR","Aadhaar",partner.poa) + option("VOTER ID","Voter ID",partner.poa) + option("DRIVING LICENSE","Driving License",partner.poa) + option("PASSPORT","Passport",partner.poa) + "</select></div>" +
         '<div class="f"><label>Proof Number *</label><div class="aadhar-wrap ' + (err("poaNum") ? "err" : "") + '"><input class="aadhar-input" placeholder="' + (isAadhaar ? "Last 4 digits" : "Reference number") + '" maxlength="' + (isAadhaar ? "4" : "30") + '" value="' + attr(partner.poaNum) + '" ' + on("input", (e) => { if (isAadhaar) e.target.value = e.target.value.replace(/\\D/g,""); onPartnerChange(partner.id, "poaNum", e.target.value); }) + " /></div></div>" +
-        '<div class="f"><label>Nationality *</label><select ' + on("change", (e) => onPartnerChange(partner.id, "nationality", e.target.value)) + ">" + option("Indian","Indian",partner.nationality) + option("Foreign National","Foreign National",partner.nationality) + "</select></div>" +
-        '<div class="f"><label>% Ownership *</label><input class="' + (err("share") ? "err" : "") + '" inputmode="decimal" value="' + attr(partner.share) + '" ' + on("input", (e) => onPartnerChange(partner.id, "share", sanitizeShare(e.target.value))) + " /></div>"
+        '<div class="f"><label>Nationality *</label><select ' + on("change", (e) => onPartnerChange(partner.id, "nationality", e.target.value)) + ">" + option("Indian","Indian",partner.nationality) + option("Foreign National","Foreign National",partner.nationality) + "</select></div>"
       ) : "") +
+      (needsOwnership(state.docRequirement) ? '<div class="f"><label>% Ownership *</label><input class="' + (err("share") ? "err" : "") + '" inputmode="decimal" value="' + attr(partner.share) + '" ' + on("input", (e) => onPartnerChange(partner.id, "share", sanitizeShare(e.target.value))) + ' /><span class="hint">Refer Partnership Deed for Shareholding %</span></div>' : '') +
     "</div></div>";
 }
 
@@ -1153,9 +1158,19 @@ function boPepHTML(errs) {
     '<label><input type="radio" name="pepBO" ' + (state.pepStatusBO === "no" ? "checked" : "") + " " + on("change", () => { state.pepStatusBO = "no"; rerender(); }) + '> No</label></div>' +
     (errs.pepStatusBO ? '<span class="err-msg">' + esc(errs.pepStatusBO) + '</span>' : '') + '</div>';
 }
+function signingGuidanceHTML(errs) {
+  if (state.entityType !== "partnership") return "";
+  const share = state.partners.filter((partner) => state.presentPartnerIds.includes(partner.id)).reduce((sum, partner) => sum + Number(partner.share || 0), 0);
+  return '<div class="education-box"><strong>Partner Resolution signing guidance</strong><br>1. Refer Partnership Deed for Shareholding %.<br>2. After filling the document: Download &gt; Print &gt; Upload in Owner KYC section &gt; Partner Resolution.<br><strong>Selected signing ownership: ' + share.toFixed(1) + '% (minimum 50% required)</strong></div>' + (errs.presentShare ? '<div class="error-box">' + esc(errs.presentShare) + '</div>' : '');
+}
 
 function pageActions(back, next) {
   return '<div class="act">' + (back || '<div></div>') + '<div class="reset-actions"><button class="btn btn-reset" ' + on("click", resetPage) + '>Reset page</button><button class="btn btn-danger" ' + on("click", globalReset) + '>Global reset</button>' + (next || '') + '</div></div>';
+}
+function documentOptionHTML(opt) {
+  const mandatory = opt.id === "set1" || opt.id === "set9";
+  const status = mandatory ? '<span class="doc-status mandatory">Mandatory</span>' : '<span class="doc-status optional">Optional</span>';
+  return '<label><input type="radio" name="docReq" ' + (state.docRequirement === opt.id ? "checked" : "") + " " + on("change", () => { state.docRequirement = opt.id; state.formValidated = false; rerender(); }) + ' /><span>' + opt.label + '</span>' + status + '</label>';
 }
 
 function renderApp() {
@@ -1197,9 +1212,8 @@ function renderApp() {
   if (state.step === 2) {
     const options = (state.onboardingType && state.entityType) ? docOptionsMap[state.onboardingType][state.entityType] : [];
     return '<div class="card"><div class="chd"><h2>\ud83d\udcc2 Which documents do you need?</h2><button class="reset-link" ' + on("click", () => resetSection("documents")) + '>Reset section</button><span class="badge">Step 3 of 5</span></div><div class="cbd">' +
-      '<div class="rg" style="flex-direction:column">' + options.map((opt) =>
-        '<label><input type="radio" name="docReq" ' + (state.docRequirement === opt.id ? "checked" : "") + " " + on("change", () => { state.docRequirement = opt.id; state.formValidated = false; rerender(); }) + " /> " + opt.label + "</label>"
-      ).join("") + "</div></div></div>" +
+      (state.entityType === "partnership" ? '<div class="info-blue"><strong>Partner Resolution is mandatory for Partnership onboarding.</strong> Other documents are optional based on the onboarding requirement.</div>' : '') +
+      '<div class="rg doc-options" style="flex-direction:column">' + options.map(documentOptionHTML).join("") + "</div></div></div>" +
       pageActions('<button class="btn btn-s" ' + on("click", () => { state.step = 1; rerender(); }) + '>\u2190 Back</button>', '<button class="btn btn-p" ' + (state.docRequirement ? "" : "disabled") + " " + on("click", () => { if (state.docRequirement) { state.step = 3; rerender(); } }) + '>Next: Fill Details \u2192</button>');
   }
 
@@ -1212,9 +1226,9 @@ function renderApp() {
         '<div class="info">This information is captured once and reused across every document you generate for this merchant.</div>' +
         '<div class="g2">' +
           '<div class="f s2"><label>Legal Entity / Firm Name (as on PAN) *</label><input class="' + (errs.firmName ? "err" : "") + '" value="' + attr(state.firmName) + '" ' + on("input", (e) => { state.firmName = e.target.value; scheduleSave(); }) + " /><span class=\"hint\">Must match Business PAN Card exactly.</span></div>" +
-          '<div class="f s2"><label>Registered Office Address *</label><textarea class="' + (errs.regAddress ? "err" : "") + '" ' + on("input", (e) => { state.regAddress = e.target.value; scheduleSave(); }) + ">" + attr(state.regAddress) + "</textarea></div>" +
+          '<div class="f s2"><label>Registered Office Address / Main Office Address *</label><textarea class="' + (errs.regAddress ? "err" : "") + '" ' + on("input", (e) => { state.regAddress = e.target.value; scheduleSave(); }) + ">" + attr(state.regAddress) + "</textarea></div>" +
           (state.entityType === "partnership" ? (
-            '<div class="f"><label>Entity Registration *</label><select ' + on("change", (e) => { state.partnershipRegType = e.target.value; rerender(); }) + ">" + option("registered","Registered Partnership / LLP",state.partnershipRegType) + option("unregistered","Unregistered Partnership Firm",state.partnershipRegType) + "</select></div>"
+            '<div class="f"><label>Entity Registration *</label><select ' + on("change", (e) => { state.partnershipRegType = e.target.value; rerender(); }) + ">" + option("registered","LLP / Registered Partnership",state.partnershipRegType) + option("unregistered","Non LLP / Unregistered Partnership",state.partnershipRegType) + "</select></div>"
           ) : "") +
           '<div class="f"><label>Principal Place of Operation *</label><div class="rg">' +
             '<label><input type="radio" name="pSame" ' + (state.principalSame === "same" ? "checked" : "") + " " + on("change", () => { state.principalSame = "same"; rerender(); }) + " /> Same</label>" +
@@ -1222,14 +1236,9 @@ function renderApp() {
           "</div>" + (state.principalSame === "diff" ? '<input style="margin-top:8px" class="' + (errs.principalAddress ? "err" : "") + '" value="' + attr(state.principalAddress) + '" ' + on("input", (e) => { state.principalAddress = e.target.value; scheduleSave(); }) + " />" : "") + "</div>" +
           (state.entityType === "partnership" ? '<div class="f"><label>Partnership Deed Date</label><input type="date" value="' + attr(state.deedDate) + '" ' + on("change", (e) => { state.deedDate = e.target.value; scheduleSave(); }) + " /></div>" : "") +
         "</div>" +
-        '<div class="divider">Letterhead (optional \u2014 embedded in the Word document header)</div>' +
+        '<div class="divider">Letterhead (optional \u2014 embedded in generated documents)</div>' +
         '<div class="cg" style="margin-bottom:10px"><label><input type="checkbox" ' + (state.includeLetterhead ? "checked" : "") + " " + on("change", (e) => { state.includeLetterhead = e.target.checked; rerender(); }) + " /> Embed letterhead in generated documents</label></div>" +
-        (state.includeLetterhead ? '<div class="g2">' +
-          '<div class="f"><label>Tagline *</label><input class="' + (errs.lhTagline ? "err" : "") + '" value="' + attr(state.lhTagline) + '" ' + on("input", (e) => { state.lhTagline = e.target.value; scheduleSave(); }) + " /></div>" +
-          '<div class="f"><label>Phone</label><input value="' + attr(state.lhPhone) + '" ' + on("input", (e) => { state.lhPhone = e.target.value; scheduleSave(); }) + " /></div>" +
-          '<div class="f"><label>Email</label><input value="' + attr(state.lhEmail) + '" ' + on("input", (e) => { state.lhEmail = e.target.value; scheduleSave(); }) + " /></div>" +
-          '<div class="f"><label>Website</label><input value="' + attr(state.lhWebsite) + '" ' + on("input", (e) => { state.lhWebsite = e.target.value; scheduleSave(); }) + " /></div>" +
-        "</div>" : "") +
+        (state.includeLetterhead ? '<div class="info-blue">Letterhead Firm Name: <strong>' + esc(state.firmName || "Enter the Legal Entity / Firm Name above") + '</strong></div>' : '') +
       "</div></div>" +
 
       // Partners / Directors
@@ -1253,8 +1262,8 @@ function renderApp() {
           '<div class="act" style="justify-content:flex-start"><button type="button" class="btn btn-s" ' + on("click", prefillDateTime) + ">Fill current date/time</button></div>" +
           '<div class="divider">Members Present & Signing</div>' +
           (errs.presentPartnerIds ? '<div class="error-box">' + esc(errs.presentPartnerIds) + "</div>" : "") +
-          (errs.presentShare ? '<div class="error-box">' + esc(errs.presentShare) + "</div>" : "") +
           state.partners.map((pt) => '<label class="rg" style="justify-content:flex-start"><input type="checkbox" ' + (state.presentPartnerIds.includes(pt.id) ? "checked" : "") + " " + on("change", (e) => togglePresentPartner(pt.id, e.target.checked)) + " /> " + esc(pt.name || "(unnamed)") + (pt.isAS ? " \u2705" : "") + "</label>").join("") +
+          signingGuidanceHTML(errs) +
           (state.entityType === "company" ? '<div class="signature-rule">The resolution must be certified and signed at the bottom panel by: 1) Company Secretary, 2) CEO, 3) Board Chairman, 4) Managing Director, or 5) any 2 attending Directors.</div><div class="cg"><label><input type="checkbox" ' + (state.isOPC ? "checked" : "") + ' ' + on("change", (e) => { state.isOPC = e.target.checked; rerender(); }) + ' /> This is a One Person Company (OPC)</label></div>' + (state.isOPC ? '<div class="cg" style="margin-top:8px"><label><input type="checkbox" ' + (state.opcApprovalConfirmed ? "checked" : "") + ' ' + on("change", (e) => { state.opcApprovalConfirmed = e.target.checked; scheduleSave(); }) + ' /> Approval obtained over email *</label></div>' : '') + (errs.companySigners ? '<div class="error-box">'+esc(errs.companySigners)+'</div>' : '') + (errs.opcApprovalConfirmed ? '<div class="error-box">'+esc(errs.opcApprovalConfirmed)+'</div>' : '') : '') +
           resolutionDeclarationsHTML(errs) +
         "</div></div>"
