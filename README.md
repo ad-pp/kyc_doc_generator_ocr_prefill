@@ -30,6 +30,12 @@ document (Partner/Board Resolution, BO Declaration, MDF) as real Word
 - Partnership Resolution captures ownership even when generated alone and
   blocks generation unless selected signing partners hold at least 50%
   collectively. The UI shows the selected total and deed/upload guidance.
+- Partner Resolution supports Version 5A (all partners are natural persons)
+  and Version 5B (one or more non-natural partners). V5A is preselected but
+  remains editable. Partnership Resolution captures meeting date only.
+- Partnership registration has no default and includes Registrar/deed hints.
+- Salesforce Partnership is restricted to MDF-only or the full mandatory
+  combination; Salesforce Company uses the full mandatory combination.
 - Letterhead uses the legal firm name and main-office address directly;
   duplicate tagline, phone, email and website fields are not required.
 - Word documents can be reviewed in the application before download. The

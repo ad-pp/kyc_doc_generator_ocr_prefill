@@ -46,8 +46,8 @@ const state = {
   includeLetterhead: true,
   principalSame: "same",
   principalAddress: "",
-  partnershipRegType: "registered",
-  naturalPersons: "yes",
+  partnershipRegType: "",
+  resolutionVersion: "v5a",
   deedDate: "",
 
   // Partners / Directors
@@ -109,22 +109,17 @@ const docOptionsMap = {
   },
   salesforce: {
     partnership: [
-      { id: "set9", label: "Partner Resolution" },
-      { id: "set10", label: "BO Declaration" },
       { id: "set11", label: "MDF" },
       { id: "set12", label: "Partner Resolution + BO Declaration + MDF" },
     ],
     company: [
-      { id: "set13", label: "Board Resolution" },
-      { id: "set14", label: "BO Declaration" },
-      { id: "set15", label: "MDF" },
       { id: "set16", label: "Board Resolution + BO Declaration + MDF" },
     ],
   },
 };
-const needsResolution = (set) => ["set1","set3","set4","set5","set7","set8","set9","set12","set13","set16"].includes(set);
-const needsBO         = (set) => ["set2","set3","set4","set6","set7","set8","set10","set12","set14","set16"].includes(set);
-const needsMDF        = (set) => ["set4","set8","set11","set12","set15","set16"].includes(set);
+const needsResolution = (set) => ["set1","set3","set4","set5","set7","set8","set12","set16"].includes(set);
+const needsBO         = (set) => ["set2","set3","set4","set6","set7","set8","set12","set16"].includes(set);
+const needsMDF        = (set) => ["set4","set8","set11","set12","set16"].includes(set);
 const needsFullKYC    = (set) => needsBO(set);
 const needsOwnership = (set) => needsBO(set) || needsResolution(set);
 
@@ -150,11 +145,13 @@ function loadMerchant() {
     if (!state.pepStatusRes && typeof d.pepDeclarationRes === "boolean") state.pepStatusRes = d.pepDeclarationRes ? "no" : "yes";
     if (!state.pepStatusBO && typeof d.pepDeclarationBO === "boolean") state.pepStatusBO = d.pepDeclarationBO ? "no" : "yes";
     if (!state.mdfPepStatus && typeof d.mdfPepConfirm === "boolean") state.mdfPepStatus = d.mdfPepConfirm ? "no" : "yes";
-    if (!state.naturalPersons) state.naturalPersons = "yes";
+    if (!state.resolutionVersion) state.resolutionVersion = "v5a";
     if (!state.pepStatusRes) state.pepStatusRes = "no";
     if (!state.pepStatusBO) state.pepStatusBO = "no";
     // v4 letterhead uses the legal firm name and main-office address directly.
     delete state.lhTagline; delete state.lhPhone; delete state.lhEmail; delete state.lhWebsite;
+    const allowedSets = ["set1","set2","set3","set4","set5","set6","set7","set8","set11","set12","set16"];
+    if (!allowedSets.includes(state.docRequirement)) state.docRequirement = null;
   } catch (e) {}
 }
 function saveMerchant() {
@@ -189,9 +186,9 @@ function resetSection(section) {
   if (section === "tracking") Object.assign(state, { merchantStatus: "new", merchantMobile: "", merchantId: "", loggedThisSession: false });
   if (section === "platform") Object.assign(state, { onboardingType: null, entityType: null, docRequirement: null });
   if (section === "documents") Object.assign(state, { docRequirement: null });
-  if (section === "entity") Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "" });
+  if (section === "entity") Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, principalSame: "same", principalAddress: "", partnershipRegType: "", deedDate: "" });
   if (section === "members") Object.assign(state, { partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [] });
-  if (section === "resolution") Object.assign(state, { resolutionDateRaw: "", resolutionTimeRaw: "", naturalPersons: "yes", pepStatusRes: "no", presentPartnerIds: [], isOPC: false, opcApprovalConfirmed: false });
+  if (section === "resolution") Object.assign(state, { resolutionDateRaw: "", resolutionTimeRaw: "", resolutionVersion: "v5a", pepStatusRes: "no", presentPartnerIds: [], isOPC: false, opcApprovalConfirmed: false });
   if (section === "bo") Object.assign(state, { boDate: "", boCategory: "cat1", pepStatusBO: "no", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "" });
   if (section === "mdf") Object.assign(state, { mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
   state.inlineErrors = {};
@@ -207,7 +204,7 @@ function resetPage() {
   if (state.step === 1) Object.assign(state, { onboardingType: null, entityType: null, docRequirement: null });
   if (state.step === 2) state.docRequirement = null;
   if (state.step === 3) {
-    Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, principalSame: "same", principalAddress: "", partnershipRegType: "registered", deedDate: "", partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [], resolutionDateRaw: "", resolutionTimeRaw: "", naturalPersons: "yes", pepStatusRes: "no", isOPC: false, opcApprovalConfirmed: false, boDate: "", boCategory: "cat1", pepStatusBO: "no", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "", mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
+    Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, principalSame: "same", principalAddress: "", partnershipRegType: "", deedDate: "", partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [], resolutionDateRaw: "", resolutionTimeRaw: "", resolutionVersion: "v5a", pepStatusRes: "no", isOPC: false, opcApprovalConfirmed: false, boDate: "", boCategory: "cat1", pepStatusBO: "no", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "", mdfAuthName: "", mdfAuthDesignation: "", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "", mdfDateRaw: "", mdfPlace: "" });
   }
   state.inlineErrors = {};
   state.formValidated = false;
@@ -433,7 +430,7 @@ function prefillDateTime() {
   const now = new Date();
   const d = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0") + "-" + String(now.getDate()).padStart(2,"0");
   const t = String(now.getHours()).padStart(2,"0") + ":" + String(now.getMinutes()).padStart(2,"0");
-  state.resolutionDateRaw = d; state.resolutionTimeRaw = t; state.boDate = d; state.mdfDateRaw = d;
+  state.resolutionDateRaw = d; state.resolutionTimeRaw = state.entityType === "company" ? t : ""; state.boDate = d; state.mdfDateRaw = d;
   rerender();
 }
 
@@ -454,6 +451,7 @@ function validateDataEntry() {
 
   if (!state.firmName.trim()) addError("Legal name is required.", "firmName");
   if (!state.regAddress.trim()) addError("Registered address is required.", "regAddress");
+  if (state.entityType === "partnership" && !state.partnershipRegType) addError("Select the partnership registration type.", "partnershipRegType");
   if (state.principalSame === "diff" && !state.principalAddress.trim()) addError("Principal office address is required.", "principalAddress");
 
   if (needsResolution(state.docRequirement) || needsBO(state.docRequirement)) {
@@ -487,10 +485,10 @@ function validateDataEntry() {
 
   if (needsResolution(state.docRequirement)) {
     if (!state.resolutionDateRaw) addError("Resolution date required.", "resolutionDateRaw");
-    if (!state.resolutionTimeRaw) addError("Resolution time required.", "resolutionTimeRaw");
+    if (state.entityType === "company" && !state.resolutionTimeRaw) addError("Resolution time required.", "resolutionTimeRaw");
     if (state.presentPartnerIds.length === 0) addError("Select at least one present signatory.", "presentPartnerIds");
     if (state.entityType === "partnership") {
-      if (!state.naturalPersons) addError("Select the natural-person ownership declaration.", "naturalPersons");
+      if (!state.resolutionVersion) addError("Select Partner Resolution Version 5A or 5B.", "resolutionVersion");
       if (!state.pepStatusRes) addError("Select Yes or No for the resolution PEP declaration.", "pepStatusRes");
       const signingShare = state.partners.filter((partner) => state.presentPartnerIds.includes(partner.id)).reduce((sum, partner) => sum + Number(partner.share || 0), 0);
       if (signingShare < 50) addError("Selected signing partners must collectively hold at least 50% ownership (currently " + signingShare.toFixed(1) + "%).", "presentShare");
@@ -625,6 +623,9 @@ function pageSetup(hasLH) {
 async function buildPartnershipResolution(d) {
   const hasLH = d.includeLetterhead && d.firmName;
   const principalText = d.principalSame === "same" ? "same \u2611 (tick if applicable)" : d.principalAddress;
+  const versionFiveDeclaration = d.resolutionVersion === "v5b"
+    ? "3. In case one or more Partners in the firm are non-Natural persons, the share holding of the Partners is as per the Deed. We are submitting with this declaration, the identity proofs of the Ultimate Beneficial Owner and of natural persons greater than above mentioned thresholds (applicable to us) in the firm."
+    : "3. It is hereby confirmed that all partners of the firm are Natural persons only and the share holding of the Partners is as per the Deed.";
   const doc = new Document({ sections: [{
     properties: { page: pageSetup(hasLH) },
     headers: hasLH ? { default: buildLetterheadHeader(d) } : undefined,
@@ -636,9 +637,8 @@ async function buildPartnershipResolution(d) {
         t("RESOLUTION OF THE PARTNERS PASSED AT THE MEETING OF THE PARTNERS OF ", { bold: true }),
         u((d.firmName||"").toUpperCase(), { bold: true }),
         t(" (\u201cFIRM\u201d) HELD ON ", { bold: true }), u(d.resolutionDate, { bold: true }),
-        t(" AT ", { bold: true }), u(d.resolutionTime, { bold: true }),
         t(" having its registered office address at "), u(d.regAddress),
-        t(" and having its principal place of operation/office at "),
+        t(" and having its outlet or principal place of operation / office at "),
         ...(d.principalSame === "same" ? [t(principalText)] : [u(d.principalAddress)]), t("."),
       ], spacing: { after: 200 } }),
       p([]),
@@ -647,7 +647,7 @@ async function buildPartnershipResolution(d) {
       p([t("(List of partners present during the resolution)", { italics: true })]),
       p([]),
       new Paragraph({ children: [
-        t("RESOLVED THAT ", { bold: true }), t("Mr/Mrs "), u(d.authSignatoryName), t(" ["), u(d.authSignatoryDesignation), t("], be and is hereby authorized, to act on behalf of the Firm and to execute/sign all necessary applications/documents for the purpose of opening and operating a business account with PhonePe Limited."),
+        t("RESOLVED THAT ", { bold: true }), t("Mr/Mrs "), u(d.authSignatoryName), t(" [Partner/Authorized Signatory], be and is hereby authorized, to act on behalf of the Firm and to execute/sign all necessary applications/documents for the purpose of opening and operating a business account with PhonePe Limited."),
       ], spacing: { after: 200 } }),
       p([]),
       new Paragraph({ children: [
@@ -661,29 +661,18 @@ async function buildPartnershipResolution(d) {
 
       new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }),
       p([]),
-      new Paragraph({ children: [new TextRun({ text: "Declaration", font: "Times New Roman", size: 24, bold: true, underline: { type: UnderlineType.SINGLE } })], alignment: AlignmentType.CENTER, spacing: { after: 200 } }),
+      new Paragraph({ children: [new TextRun({ text: "Declaration", font: "Times New Roman", size: 24, bold: true })], spacing: { after: 160 } }),
       new Paragraph({ children: [t("I/we, the undersigned individuals, hereby personally, jointly, and severally undertake and declare that:")], spacing: { after: 160 } }),
-      new Paragraph({ children: [t("1. Our firm ["), u(d.firmName), t("] is constituted as a partnership firm and it is")], spacing: { after: 100 } }),
-      p([t(d.isRegistered ? "\u2611 Registered" : "\u2610 Registered")], { indent: { left: 720 } }),
-      new Paragraph({ children: [t("Whether there is/are any natural person(s), acting alone or through other juridical persons, with more than 10% ownership/entitlement to capital/profits, or who exercise control through other means.")], indent: { left: 1440 }, spacing: { after: 80 } }),
-      ...(d.isRegistered ? [
-        p([t(d.naturalPersons === "yes" ? "\u2611 Yes" : "\u2610 Yes")], { indent: { left: 1440 } }),
-        p([t(d.naturalPersons === "no" ? "\u2611 No" : "\u2610 No")], { indent: { left: 1440 } }),
-      ] : [p([t("\u2610 Yes   \u2610 No")], { indent: { left: 1440 } })]),
-      p([t(d.isRegistered ? "\u2610 Unregistered" : "\u2611 Unregistered")], { indent: { left: 720 } }),
-      new Paragraph({ children: [t("Whether there is/are any natural person(s), acting alone or through other juridical persons, with more than 15% ownership/entitlement to capital/profits, or who exercise control through other means.")], indent: { left: 1440 }, spacing: { after: 80 } }),
-      ...(!d.isRegistered ? [
-        p([t(d.naturalPersons === "yes" ? "\u2611 Yes" : "\u2610 Yes")], { indent: { left: 1440 } }),
-        p([t(d.naturalPersons === "no" ? "\u2611 No" : "\u2610 No")], { indent: { left: 1440 } }),
-      ] : [p([t("\u2610 Yes   \u2610 No")], { indent: { left: 1440 } })]),
-      p([]),
-      new Paragraph({ children: [t("2. If there is/are no natural person(s) as per the responses provided under declaration (1) hereinabove, then we declare that the authorised signatory identified in the Resolution (defined below) is the senior managing official and be considered as the beneficial owner of our firm.")], spacing: { after: 120 } }),
-      new Paragraph({ children: [t("3. Our personnel(s), partner(s), director(s), officer(s), or our family member(s) or our close associate(s) and beneficial owners, is a Politically Exposed Person. (\u201cPolitically Exposed Persons\u201d (PEPs) are individuals who are or have been entrusted with prominent public functions by a foreign country, including the Heads of States/Governments, senior politicians, senior government or judicial or military officers, senior executives of state-owned corporations and important political party officials.)")], spacing: { after: 80 } }),
+      new Paragraph({ children: [t("1. Our firm "), u(d.firmName), t(" is constituted as a partnership firm and it is")], spacing: { after: 80 } }),
+      p([t((d.isRegistered ? "\u2611" : "\u2610") + " Registered (LLP or Registry done in Registrar office of the Deed)")], { indent: { left: 720 } }),
+      p([t((!d.isRegistered ? "\u2611" : "\u2610") + " Unregistered (Normal Deed Notarized or not Notarized)")], { indent: { left: 720 } }),
+      new Paragraph({ children: [t("2. The partners holding more than 15% shares/control for registered partnership and 10% shares/control for un-registered partnership are beneficial owners of the entity. In case no natural person holds more than 10%/15% shares/control in the entity, the authorised signatory should be considered as senior management for the purpose of BO identification.")], spacing: { after: 100 } }),
+      new Paragraph({ children: [t(versionFiveDeclaration)], spacing: { after: 100 } }),
+      new Paragraph({ children: [t("4. Our personnel(s), partner(s), director(s), officer(s), or our family member(s) or our close associate(s) and beneficial owners, is a Politically Exposed Person. (\u201cPolitically Exposed Persons\u201d (PEPs) are individuals who are or have been entrusted with prominent public functions by a foreign country, including the Heads of States/Governments, senior politicians, senior government or judicial or military officers, senior executives of state-owned corporations and important political party officials.)")], spacing: { after: 80 } }),
       p([t((d.pepStatusRes === "yes" ? "\u2611" : "\u2610") + " YES     " + (d.pepStatusRes === "no" ? "\u2611" : "\u2610") + " NO")], { indent: { left: 720 } }),
-      new Paragraph({ children: [t("4. The contents of the resolution of the partners provided to PhonePe are true and valid.")], spacing: { after: 120 } }),
-      new Paragraph({ children: [t("5. The list of partners constituting the partnership firm and their respective details, as provided in the partnership deed, provided to PhonePe, are true, complete, current, and valid.")], spacing: { after: 120 } }),
-      new Paragraph({ children: [t("6. The percentage of ownership and/or entitlement to capital or profits of the partners as specified in the Partnership Deed is true, complete, current, and valid.")], spacing: { after: 200 } }),
-      new Paragraph({ children: [t("In consideration of PhonePe agreeing to rely on the Resolution, the Partnership Deed, and this declaration, I/we hereby personally, jointly, and severally undertake to indemnify and hold PhonePe harmless against all damages, liabilities, claims, demands, actions, proceedings, losses, costs (including legal costs), expenses, and all other liabilities of whatsoever nature or description, arising out of or in connection with PhonePe\u2019s reliance on the said Resolution, Partnership Deed, and this declaration.")], spacing: { after: 240 } }),
+      new Paragraph({ children: [t("5. The contents of the resolution of the partners provided to PhonePe are true and valid.")], spacing: { after: 100 } }),
+      new Paragraph({ children: [t("6. The list of partners constituting the partnership firm and their respective details, as provided in the partnership deed, provided to PhonePe, are true, complete, current, and valid.")], spacing: { after: 100 } }),
+      new Paragraph({ children: [t("The percentage of ownership and/or entitlement to capital or profits of the partners as specified in the Partnership Deed is true, complete, current, and valid. In consideration of PhonePe agreeing to rely on the Resolution, the Partnership Deed, and this declaration, I/we hereby personally, jointly, and severally undertake to indemnify and hold PhonePe harmless against all damages, liabilities, claims, demands, actions, proceedings, losses, costs (including legal costs), expenses, and all other liabilities of whatsoever nature or description, arising out of or in connection with PhonePe\u2019s reliance on the said Resolution, Partnership Deed, and this declaration.")], spacing: { after: 160 } }),
       p([]),
       sigTable(d.presentPartners),
     ],
@@ -1141,11 +1130,10 @@ function PartnerCardHTML(partner, index, fullKYC) {
 
 function resolutionDeclarationsHTML(errs) {
   if (state.entityType !== "partnership") return "";
-  return '<div class="divider">Resolution Declaration</div>' +
-    '<div class="f"><label>Natural person(s) above the applicable ownership/control threshold? *</label><div class="rg">' +
-    '<label><input type="radio" name="natPersons" ' + (state.naturalPersons === "yes" ? "checked" : "") + " " + on("change", () => { state.naturalPersons = "yes"; rerender(); }) + '> Yes</label>' +
-    '<label><input type="radio" name="natPersons" ' + (state.naturalPersons === "no" ? "checked" : "") + " " + on("change", () => { state.naturalPersons = "no"; rerender(); }) + '> No</label></div>' +
-    (errs.naturalPersons ? '<span class="err-msg">' + esc(errs.naturalPersons) + '</span>' : '') + '</div>' +
+  return '<div class="divider">Partner Resolution Format *</div>' +
+    '<div class="rg version-options"><label><input type="radio" name="resolutionVersion" ' + (state.resolutionVersion === "v5a" ? "checked" : "") + " " + on("change", () => { state.resolutionVersion = "v5a"; rerender(); }) + '> <span><strong>Version 5A (Recommended)</strong><small>Use when all partners are natural persons.</small></span></label>' +
+    '<label><input type="radio" name="resolutionVersion" ' + (state.resolutionVersion === "v5b" ? "checked" : "") + " " + on("change", () => { state.resolutionVersion = "v5b"; rerender(); }) + '> <span><strong>Version 5B</strong><small>Valid when one or more partners are non-natural persons.</small></span></label></div>' +
+    (errs.resolutionVersion ? '<span class="err-msg">' + esc(errs.resolutionVersion) + '</span>' : '') +
     '<div class="f" style="margin-top:10px"><label>Is any covered person a Politically Exposed Person (PEP)? *</label><div class="rg">' +
     '<label><input type="radio" name="pepRes" ' + (state.pepStatusRes === "yes" ? "checked" : "") + " " + on("change", () => { state.pepStatusRes = "yes"; rerender(); }) + '> Yes</label>' +
     '<label><input type="radio" name="pepRes" ' + (state.pepStatusRes === "no" ? "checked" : "") + " " + on("change", () => { state.pepStatusRes = "no"; rerender(); }) + '> No</label></div>' +
@@ -1168,7 +1156,7 @@ function pageActions(back, next) {
   return '<div class="act">' + (back || '<div></div>') + '<div class="reset-actions"><button class="btn btn-reset" ' + on("click", resetPage) + '>Reset page</button><button class="btn btn-danger" ' + on("click", globalReset) + '>Global reset</button>' + (next || '') + '</div></div>';
 }
 function documentOptionHTML(opt) {
-  const mandatory = opt.id === "set1" || opt.id === "set9";
+  const mandatory = (state.onboardingType === "salesforce" && state.entityType === "partnership") || (state.onboardingType === "salesforce" && state.entityType === "company") || opt.id === "set1";
   const status = mandatory ? '<span class="doc-status mandatory">Mandatory</span>' : '<span class="doc-status optional">Optional</span>';
   return '<label><input type="radio" name="docReq" ' + (state.docRequirement === opt.id ? "checked" : "") + " " + on("change", () => { state.docRequirement = opt.id; state.formValidated = false; rerender(); }) + ' /><span>' + opt.label + '</span>' + status + '</label>';
 }
@@ -1212,7 +1200,7 @@ function renderApp() {
   if (state.step === 2) {
     const options = (state.onboardingType && state.entityType) ? docOptionsMap[state.onboardingType][state.entityType] : [];
     return '<div class="card"><div class="chd"><h2>\ud83d\udcc2 Which documents do you need?</h2><button class="reset-link" ' + on("click", () => resetSection("documents")) + '>Reset section</button><span class="badge">Step 3 of 5</span></div><div class="cbd">' +
-      (state.entityType === "partnership" ? '<div class="info-blue"><strong>Partner Resolution is mandatory for Partnership onboarding.</strong> Other documents are optional based on the onboarding requirement.</div>' : '') +
+      (state.onboardingType === "salesforce" && state.entityType === "partnership" ? '<div class="info-blue"><strong>MDF is mandatory for Salesforce Partnership onboarding.</strong> Only valid MDF combinations are shown.</div>' : state.onboardingType === "salesforce" && state.entityType === "company" ? '<div class="info-blue"><strong>Board Resolution, BO Declaration and MDF are mandatory for Salesforce Company onboarding.</strong></div>' : state.entityType === "partnership" ? '<div class="info-blue"><strong>Partner Resolution is mandatory for Partnership onboarding.</strong> Other documents are optional based on the onboarding requirement.</div>' : '') +
       '<div class="rg doc-options" style="flex-direction:column">' + options.map(documentOptionHTML).join("") + "</div></div></div>" +
       pageActions('<button class="btn btn-s" ' + on("click", () => { state.step = 1; rerender(); }) + '>\u2190 Back</button>', '<button class="btn btn-p" ' + (state.docRequirement ? "" : "disabled") + " " + on("click", () => { if (state.docRequirement) { state.step = 3; rerender(); } }) + '>Next: Fill Details \u2192</button>');
   }
@@ -1228,7 +1216,7 @@ function renderApp() {
           '<div class="f s2"><label>Legal Entity / Firm Name (as on PAN) *</label><input class="' + (errs.firmName ? "err" : "") + '" value="' + attr(state.firmName) + '" ' + on("input", (e) => { state.firmName = e.target.value; scheduleSave(); }) + " /><span class=\"hint\">Must match Business PAN Card exactly.</span></div>" +
           '<div class="f s2"><label>Registered Office Address / Main Office Address *</label><textarea class="' + (errs.regAddress ? "err" : "") + '" ' + on("input", (e) => { state.regAddress = e.target.value; scheduleSave(); }) + ">" + attr(state.regAddress) + "</textarea></div>" +
           (state.entityType === "partnership" ? (
-            '<div class="f"><label>Entity Registration *</label><select ' + on("change", (e) => { state.partnershipRegType = e.target.value; rerender(); }) + ">" + option("registered","LLP / Registered Partnership",state.partnershipRegType) + option("unregistered","Non LLP / Unregistered Partnership",state.partnershipRegType) + "</select></div>"
+            '<div class="f"><label>Entity Registration *</label><select class="' + (errs.partnershipRegType ? "err" : "") + '" ' + on("change", (e) => { state.partnershipRegType = e.target.value; rerender(); }) + ">" + option("","Select registration type",state.partnershipRegType) + option("registered","LLP / Registered Partnership",state.partnershipRegType) + option("unregistered","Non LLP / Unregistered Partnership",state.partnershipRegType) + "</select><span class=\"hint\">Registered: LLP or deed registered in Registrar office. Unregistered: normal deed, notarized or not notarized.</span></div>"
           ) : "") +
           '<div class="f"><label>Principal Place of Operation *</label><div class="rg">' +
             '<label><input type="radio" name="pSame" ' + (state.principalSame === "same" ? "checked" : "") + " " + on("change", () => { state.principalSame = "same"; rerender(); }) + " /> Same</label>" +
@@ -1257,9 +1245,9 @@ function renderApp() {
         '<div class="card"><div class="chd"><h2>\ud83d\udccb ' + (state.entityType === "partnership" ? "Partner Resolution" : "Board Resolution") + ' Details</h2><button class="reset-link" ' + on("click", () => resetSection("resolution")) + '>Reset section</button></div><div class="cbd">' +
           '<div class="g2">' +
             '<div class="f"><label>Meeting Date *</label><input type="date" class="' + (errs.resolutionDateRaw ? "err" : "") + '" value="' + attr(state.resolutionDateRaw) + '" ' + on("change", (e) => { state.resolutionDateRaw = e.target.value; state.boDate = state.boDate || e.target.value; scheduleSave(); }) + " /></div>" +
-            '<div class="f"><label>Meeting Time *</label><input type="time" class="' + (errs.resolutionTimeRaw ? "err" : "") + '" value="' + attr(state.resolutionTimeRaw) + '" ' + on("change", (e) => { state.resolutionTimeRaw = e.target.value; scheduleSave(); }) + " /></div>" +
+            (state.entityType === "company" ? '<div class="f"><label>Meeting Time *</label><input type="time" class="' + (errs.resolutionTimeRaw ? "err" : "") + '" value="' + attr(state.resolutionTimeRaw) + '" ' + on("change", (e) => { state.resolutionTimeRaw = e.target.value; scheduleSave(); }) + " /></div>" : "") +
           "</div>" +
-          '<div class="act" style="justify-content:flex-start"><button type="button" class="btn btn-s" ' + on("click", prefillDateTime) + ">Fill current date/time</button></div>" +
+          '<div class="act" style="justify-content:flex-start"><button type="button" class="btn btn-s" ' + on("click", prefillDateTime) + ">Fill current " + (state.entityType === "company" ? "date/time" : "date") + "</button></div>" +
           '<div class="divider">Members Present & Signing</div>' +
           (errs.presentPartnerIds ? '<div class="error-box">' + esc(errs.presentPartnerIds) + "</div>" : "") +
           state.partners.map((pt) => '<label class="rg" style="justify-content:flex-start"><input type="checkbox" ' + (state.presentPartnerIds.includes(pt.id) ? "checked" : "") + " " + on("change", (e) => togglePresentPartner(pt.id, e.target.checked)) + " /> " + esc(pt.name || "(unnamed)") + (pt.isAS ? " \u2705" : "") + "</label>").join("") +
