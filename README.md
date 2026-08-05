@@ -35,7 +35,15 @@ document (Partner/Board Resolution, BO Declaration, MDF) as real Word
   remains editable. Partnership Resolution captures meeting date only.
 - Partnership registration has no default and includes Registrar/deed hints.
 - Salesforce Partnership is restricted to MDF-only or the full mandatory
-  combination; Salesforce Company uses the full mandatory combination.
+  combination in v5; v6 restores all four individual/combined choices while
+  retaining the required mandatory badges. Salesforce Company also exposes
+  all four requested choices.
+- ACE Company marks Board Resolution, BO Declaration and their combination
+  mandatory; the ACE OSV combination remains optional.
+- Company Board Resolution allows one selected signer and enforces 100%
+  ownership across listed directors/officials; OPC can list one director.
+- Standardized optional letterhead uses one bold black line for firm name
+  and registered/principal addresses with a purple rule.
 - Letterhead uses the legal firm name and main-office address directly;
   duplicate tagline, phone, email and website fields are not required.
 - Word documents can be reviewed in the application before download. The
