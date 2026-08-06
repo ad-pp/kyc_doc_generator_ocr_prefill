@@ -593,25 +593,25 @@ function sigTable(members) {
   return new Table({
     width: { size: 9360, type: WidthType.DXA }, columnWidths: list.map(() => colW), borders: noBdrs,
     rows: [
-      new TableRow({ children: list.map(() => new TableCell({ borders: noBdrs, width: { size: colW, type: WidthType.DXA },
+      new TableRow({ cantSplit: true, children: list.map(() => new TableCell({ borders: noBdrs, width: { size: colW, type: WidthType.DXA },
         margins: { top: 40, bottom: 40, left: 80, right: 80 }, children: [p([t("____________ (Sign)")])] })) }),
-      new TableRow({ children: list.map((m) => new TableCell({ borders: noBdrs, width: { size: colW, type: WidthType.DXA },
+      new TableRow({ cantSplit: true, children: list.map((m) => new TableCell({ borders: noBdrs, width: { size: colW, type: WidthType.DXA },
         margins: { top: 40, bottom: 40, left: 80, right: 80 }, children: [p([u(m.name)]), p([t("(" ), u(m.designation||""), t(")")])] })) }),
     ],
   });
 }
 function buildLetterheadHeader(lh) {
-  const lt = (text, opts={}) => new TextRun({ text: text||"", font: "Times New Roman", size: 18, ...opts });
-  const logoCell = new TableCell({ borders: noBdrs, width: { size: 3600, type: WidthType.DXA }, margins: { top:0,bottom:0,left:0,right:200 },
+  const lt = (text, opts={}) => new TextRun({ text: text||"", font: "Arial", size: 20, ...opts });
+  const logoCell = new TableCell({ borders: noBdrs, width: { size: 3000, type: WidthType.DXA }, margins: { top:0,bottom:0,left:0,right:120 },
     children: [
-      new Paragraph({ children: [new TextRun({ text: lh.firmName||"", font:"Times New Roman", size:30, bold:true, color:"000000" })], spacing:{after:10} }),
+      new Paragraph({ children: [new TextRun({ text: lh.firmName||"", font:"Arial", size:28, bold:true, color:"000000" })], spacing:{after:0} }),
     ]});
   const contactLines = [
     lh.regAddress ? "Regd Office: " + lh.regAddress + (lh.principalSame === "diff" && lh.principalAddress ? " | Principal Office: " + lh.principalAddress : "") : null,
   ].filter(Boolean);
-  const contactCell = new TableCell({ borders: noBdrs, width: { size: 6480, type: WidthType.DXA }, margins:{top:0,bottom:0,left:200,right:0},
-    children: contactLines.map((line) => new Paragraph({ children:[lt(line,{bold:true,color:"000000"})], alignment: AlignmentType.RIGHT, spacing:{after:10} })) });
-  const lhTable = new Table({ width:{size:10080,type:WidthType.DXA}, columnWidths:[3600,6480], borders: noBdrs, rows:[new TableRow({children:[logoCell,contactCell]})] });
+  const contactCell = new TableCell({ borders: noBdrs, width: { size: 7080, type: WidthType.DXA }, margins:{top:0,bottom:0,left:120,right:0},
+    children: contactLines.map((line) => new Paragraph({ children:[lt(line,{bold:true,color:"000000"})], alignment: AlignmentType.RIGHT, spacing:{after:0} })) });
+  const lhTable = new Table({ width:{size:10080,type:WidthType.DXA}, columnWidths:[3000,7080], borders: noBdrs, rows:[new TableRow({cantSplit:true,children:[logoCell,contactCell]})] });
   const hrPara = new Paragraph({ children: [], border: { bottom: { style: BorderStyle.SINGLE, size: 5, color: "5F259F", space: 3 } }, spacing: { after: 80 } });
   return new Header({ children: [lhTable, hrPara] });
 }
@@ -694,12 +694,12 @@ async function buildPartnershipBO(d) {
     children: [
       new Paragraph({ children: [new TextRun({ text: "DECLARATION OF BENEFICIAL OWNERSHIP (BO) and LIST OF PARTNERS", font: "Times New Roman", size: 26, bold: true, underline: { type: UnderlineType.SINGLE } })], alignment: AlignmentType.CENTER, spacing: { after: 200 } }),
       new Table({ width: { size: 10080, type: WidthType.DXA }, columnWidths: [500, 2500, 7080], rows: [
-        new TableRow({ children: [cell("I", 500), cell("Name of the entity", 2500), ucell(d.firmName, 7080)] }),
-        new TableRow({ children: [cell("II", 500), cell("Registered address", 2500), ucell(d.regAddress, 7080)] }),
-        new TableRow({ children: [cell("III", 500), cell("Principal place of operation/office", 2500),
+        new TableRow({ cantSplit: true, children: [cell("I", 500), cell("Name of the entity", 2500), ucell(d.firmName, 7080)] }),
+        new TableRow({ cantSplit: true, children: [cell("II", 500), cell("Registered address", 2500), ucell(d.regAddress, 7080)] }),
+        new TableRow({ cantSplit: true, children: [cell("III", 500), cell("Principal place of operation/office", 2500),
           new TableCell({ borders: bdrs, width: { size: 7080, type: WidthType.DXA }, margins: { top: 60, bottom: 60, left: 100, right: 100 },
             children: d.principalSame === "same" ? [p([t("\u2611 Same")])] : [p([t("\u2610 Same   OR "), u(d.principalAddress)])] }) ] }),
-        new TableRow({ children: [cell("IV", 500), cell("Type of entity", 2500),
+        new TableRow({ cantSplit: true, children: [cell("IV", 500), cell("Type of entity", 2500),
           new TableCell({ borders: bdrs, width: { size: 7080, type: WidthType.DXA }, margins: { top: 60, bottom: 60, left: 100, right: 100 },
             children: [p([t(d.isRegistered ? "\u2611" : "\u2610"), t(" Partnership Firm / LLP")]), p([t(d.isRegistered ? "\u2610" : "\u2611"), t(" Unregistered Partnership Firm")])] }) ] }),
       ] }),
@@ -710,12 +710,12 @@ async function buildPartnershipBO(d) {
       new Paragraph({ children: [t((d.pepStatusBO === "yes" ? "\u2611" : "\u2610") + " Our personnel(s), partner(s), director(s), officer(s), or our family member(s) or our close associate(s) and beneficial owners, is a Politically Exposed Person. (\u201cPolitically Exposed Persons\u201d (PEPs) are individuals who are or have been entrusted with prominent public functions by a foreign country, including Heads of States/Governments, senior politicians, senior government or judicial or military officers, senior executives of state-owned corporations and important political party officials.)")], spacing: { after: 100 } }),
       p([t("The details of beneficial owner(s) is/are as follows:")]),
       new Table({ width: { size: 10080, type: WidthType.DXA }, columnWidths: boCols, rows: [
-        new TableRow({ tableHeader: true, children: [
+        new TableRow({ tableHeader: true, cantSplit: true, children: [
           hCell("S.N.", boCols[0]), hCell("Name", boCols[1]), hCell("Residential Address and PIN code", boCols[2]),
           hCell("Designation", boCols[3]), hCell("DOB", boCols[4]), hCell("Proof of identity", boCols[5]),
           hCell("Proof of Address", boCols[6]), hCell("Nationality", boCols[7]), hCell("% of interest", boCols[8]),
         ]}),
-        ...boRows.map((m, i) => new TableRow({ children: [
+        ...boRows.map((m, i) => new TableRow({ cantSplit: true, children: [
           cell(String(i + 1), boCols[0]), ucell(m.name, boCols[1]), ucell(m.address, boCols[2]),
           ucell(m.designation, boCols[3]), ucell(m.dob, boCols[4]), ucell(m.pan, boCols[5]),
           ucell(m.poa + " " + m.poaNumDisplay, boCols[6]), ucell(m.nationality, boCols[7]), ucell(m.share + "%", boCols[8]),
@@ -734,9 +734,9 @@ async function buildPartnershipBO(d) {
       p([t("A. RBI guidelines for identification of Beneficial owners", { bold: true })]),
       p([t("Category 1: Controlling ownership interest means:", { bold: true })]),
       new Table({ width: { size: 6500, type: WidthType.DXA }, columnWidths: [3800, 2700], rows: [
-        new TableRow({ children: [hCell("Business entity", 3800), hCell("Shareholding* %", 2700)] }),
-        new TableRow({ children: [cell("Partnership Firm", 3800), cell(">10%", 2700)] }),
-        new TableRow({ children: [cell("Unregistered Partnership Firm", 3800), cell(">15%", 2700)] }),
+        new TableRow({ cantSplit: true, children: [hCell("Business entity", 3800), hCell("Shareholding* %", 2700)] }),
+        new TableRow({ cantSplit: true, children: [cell("Partnership Firm", 3800), cell(">10%", 2700)] }),
+        new TableRow({ cantSplit: true, children: [cell("Unregistered Partnership Firm", 3800), cell(">15%", 2700)] }),
       ]}),
       p([]),
       p([t("i. Ownership of/entitlement to more than 10%/15% of the capital or profits of the juridical person where the juridical person is a partnership firm, LLP. [\u2018Control\u2019 shall include the right to control the management or policy decision.]")]),
@@ -747,16 +747,16 @@ async function buildPartnershipBO(d) {
       p([t("C. Other Instructions", { bold: true })]),
       p([t("1. Proof of Identity -")]),
       new Table({ width: { size: 8500, type: WidthType.DXA }, columnWidths: [4000, 4500], rows: [
-        new TableRow({ children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
-        new TableRow({ children: [cell("Individual (Indian / Foreign National) / Indian Entity", 4000), cell("PAN*", 4500)] }),
-        new TableRow({ children: [cell("Foreign entity", 4000), cell("Valid Establishment document issued in the country of incorporation/registration", 4500)] }),
+        new TableRow({ cantSplit: true, children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Individual (Indian / Foreign National) / Indian Entity", 4000), cell("PAN*", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Foreign entity", 4000), cell("Valid Establishment document issued in the country of incorporation/registration", 4500)] }),
       ]}),
       p([t("*If Individual PAN is not available, then form 60 should be provided.")]),
       p([t("2. Proof of Address -")]),
       new Table({ width: { size: 8500, type: WidthType.DXA }, columnWidths: [4000, 4500], rows: [
-        new TableRow({ children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
-        new TableRow({ children: [cell("Individual (Indian / Foreign National)", 4000), cell("Voter ID/ Driving License / Passport/ Redacted Aadhar", 4500)] }),
-        new TableRow({ children: [cell("Entity (Indian or Foreign)", 4000), cell("Valid Establishment document", 4500)] }),
+        new TableRow({ cantSplit: true, children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Individual (Indian / Foreign National)", 4000), cell("Voter ID/ Driving License / Passport/ Redacted Aadhar", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Entity (Indian or Foreign)", 4000), cell("Valid Establishment document", 4500)] }),
       ]}),
       p([t("3. PAN Number to be provided for Residents/ Entities registered in India.")]),
       p([t("4. In case if BO is a minor, and POI or POA as mentioned above is not available, then valid age proof to be provided.")]),
@@ -794,8 +794,8 @@ async function buildCompanyResolution(d) {
       ], spacing: { after: 240 } }),
       p([]),
       new Table({ width: { size: 9360, type: WidthType.DXA }, columnWidths: [3500, 2900, 2960], rows: [
-        new TableRow({ children: [hCell("Name of the person who is authorised to sign the Board resolution.", 3500), hCell("Designation", 2900), hCell("Signature", 2960)] }),
-        ...present.map((m) => new TableRow({ children: [ucell(m.name, 3500), ucell(m.designation, 2900), cell("[Sign Here]", 2960)] })),
+        new TableRow({ cantSplit: true, children: [hCell("Name of the person who is authorised to sign the Board resolution.", 3500), hCell("Designation", 2900), hCell("Signature", 2960)] }),
+        ...present.map((m) => new TableRow({ cantSplit: true, children: [ucell(m.name, 3500), ucell(m.designation, 2900), cell("[Sign Here]", 2960)] })),
       ]}),
       p([]),
     ],
@@ -817,13 +817,13 @@ async function buildCompanyBO(d) {
       p([t("Declarations")]),
       new Paragraph({ children: [new TextRun({ text: "A. DECLARATION OF BENEFICIAL OWNERSHIP (BO)", font: "Times New Roman", size: 26, bold: true, underline: { type: UnderlineType.SINGLE } })], alignment: AlignmentType.CENTER, spacing: { after: 200 } }),
       new Table({ width: { size: 10080, type: WidthType.DXA }, columnWidths: [500, 2500, 7080], rows: [
-        new TableRow({ children: [cell("I", 500), cell("Name of the entity", 2500), ucell(d.firmName, 7080)] }),
-        new TableRow({ children: [cell("II", 500), cell("Registered address", 2500), ucell(d.regAddress, 7080)] }),
-        new TableRow({ children: [cell("III", 500), cell("Principal place of operation/office", 2500),
+        new TableRow({ cantSplit: true, children: [cell("I", 500), cell("Name of the entity", 2500), ucell(d.firmName, 7080)] }),
+        new TableRow({ cantSplit: true, children: [cell("II", 500), cell("Registered address", 2500), ucell(d.regAddress, 7080)] }),
+        new TableRow({ cantSplit: true, children: [cell("III", 500), cell("Principal place of operation/office", 2500),
           new TableCell({ borders: bdrs, width: { size: 7080, type: WidthType.DXA }, margins: { top: 60, bottom: 60, left: 100, right: 100 },
             children: d.principalSame === "same" ? [p([t("\u2611 Same")])] : [p([t("\u2610 Same   OR "), u(d.principalAddress)])] }) ] }),
-        new TableRow({ children: [cell("IV", 500), cell("Type of entity", 2500), ucell("Company", 7080)] }),
-        new TableRow({ children: [cell("V", 500), cell("Listing status", 2500), new TableCell({ borders: bdrs, width: { size: 7080, type: WidthType.DXA }, margins: { top: 60, bottom: 60, left: 100, right: 100 }, children: [
+        new TableRow({ cantSplit: true, children: [cell("IV", 500), cell("Type of entity", 2500), ucell("Company", 7080)] }),
+        new TableRow({ cantSplit: true, children: [cell("V", 500), cell("Listing status", 2500), new TableCell({ borders: bdrs, width: { size: 7080, type: WidthType.DXA }, margins: { top: 60, bottom: 60, left: 100, right: 100 }, children: [
           p([t((d.companyListingStatus === "listed_india" ? "\u2611" : "\u2610") + " i. An entity listed on a stock exchange in India"), ...(d.companyListingStatus === "listed_india" ? [t(" - "), u(d.stockExchangeName)] : [])]),
           p([t((d.companyListingStatus === "listed_foreign" ? "\u2611" : "\u2610") + " ii. An entity resident in a jurisdiction notified by the Central Government and listed there"), ...(d.companyListingStatus === "listed_foreign" ? [t(" - "), u(d.stockExchangeName)] : [])]),
           p([t((d.companyListingStatus === "subsidiary" ? "\u2611" : "\u2610") + " iii. A subsidiary of such listed entities (i & ii)")]),
@@ -836,22 +836,23 @@ async function buildCompanyBO(d) {
       new Paragraph({ children: [t((d.boCategory === "cat2" ? "\u2611" : "\u2610") + " Category 2", { bold: true }), t(" - No natural person is identified as per Category 1 above.")], spacing: { after: 160 } }),
       p([t("The details of beneficial owner(s) is/are as follows:")]),
       new Table({ width: { size: 10080, type: WidthType.DXA }, columnWidths: boCols, rows: [
-        new TableRow({ tableHeader: true, children: [
+        new TableRow({ tableHeader: true, cantSplit: true, children: [
           hCell("S.N.", boCols[0]), hCell("Name", boCols[1]), hCell("Residential Address and PIN code", boCols[2]),
           hCell("Designation", boCols[3]), hCell("DOB", boCols[4]), hCell("Proof of identity", boCols[5]),
           hCell("Proof of Address", boCols[6]), hCell("Nationality", boCols[7]), hCell("% of interest", boCols[8]),
         ]}),
-        ...source.map((m, i) => new TableRow({ children: [
+        ...source.map((m, i) => new TableRow({ cantSplit: true, children: [
           cell(String(i + 1), boCols[0]), ucell(m.name, boCols[1]), ucell(m.address, boCols[2]),
           ucell(m.designation, boCols[3]), ucell(m.dob, boCols[4]), ucell(m.pan, boCols[5]),
           ucell(m.poa + " " + m.poaNumDisplay, boCols[6]), ucell(m.nationality, boCols[7]), ucell(m.share + "%", boCols[8]),
         ]})),
       ]}),
       p([]),
+      new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }),
       p([t("List of Senior Management Officials:")]),
       new Table({ width: { size: 10080, type: WidthType.DXA }, columnWidths: [5040, 5040], rows: [
-        new TableRow({ children: [hCell("Name", 5040), hCell("Designation", 5040)] }),
-        ...d.partners.map((m) => new TableRow({ children: [ucell(m.name, 5040), ucell(m.designation, 5040)] })),
+        new TableRow({ cantSplit: true, children: [hCell("Name", 5040), hCell("Designation", 5040)] }),
+        ...d.partners.map((m) => new TableRow({ cantSplit: true, children: [ucell(m.name, 5040), ucell(m.designation, 5040)] })),
       ]}),
       p([]),
       p([t("C. PEP Declaration (Mandatory)", { bold: true })]),
@@ -860,13 +861,12 @@ async function buildCompanyBO(d) {
       p([t("Authorised Signatory/ies:", { bold: true })]),
       p([t("___________________________(Name, Signature with Stamp)")]),
       p([u(d.boExternalAS ? d.boExternalASName : d.authSignatoryName), t(d.boExternalAS ? " (" + d.boExternalASDesignation + ")" : "")]),
-      new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }),
       p([t("#Notes:-", { bold: true })]),
       p([t("a. RBI guidelines for identification of Beneficial owners", { bold: true })]),
       p([t("Category 1: Controlling ownership interest means:", { bold: true })]),
       new Table({ width: { size: 7000, type: WidthType.DXA }, columnWidths: [4300, 2700], rows: [
-        new TableRow({ children: [hCell("Business entity", 4300), hCell("Shareholding* %", 2700)] }),
-        new TableRow({ children: [cell("Companies (Public, Private) & LLP", 4300), cell(">10%", 2700)] }),
+        new TableRow({ cantSplit: true, children: [hCell("Business entity", 4300), hCell("Shareholding* %", 2700)] }),
+        new TableRow({ cantSplit: true, children: [cell("Companies (Public, Private) & LLP", 4300), cell(">10%", 2700)] }),
       ]}),
       p([t("Ownership of/entitlement to more than 10% of the share or capital or profits of the juridical person, where the juridical person is a company. \u2018Control\u2019 shall include the right to appoint a majority of the directors or to control the management or policy decisions, including by virtue of shareholding, management rights, shareholders agreements or voting agreements.")]),
       p([t("Category 2: Where no natural person is identified under category 1, the beneficial owner is the relevant natural person who holds the position of senior managing official in that entity.")]),
@@ -874,16 +874,16 @@ async function buildCompanyBO(d) {
       p([t("c. Other Instructions", { bold: true })]),
       p([t("1. Proof of Identity -")]),
       new Table({ width: { size: 8500, type: WidthType.DXA }, columnWidths: [4000, 4500], rows: [
-        new TableRow({ children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
-        new TableRow({ children: [cell("Individual (Indian / Foreign National) / Indian Entity", 4000), cell("PAN*", 4500)] }),
-        new TableRow({ children: [cell("Foreign entity", 4000), cell("Valid Establishment document issued in the country of incorporation/registration", 4500)] }),
+        new TableRow({ cantSplit: true, children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Individual (Indian / Foreign National) / Indian Entity", 4000), cell("PAN*", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Foreign entity", 4000), cell("Valid Establishment document issued in the country of incorporation/registration", 4500)] }),
       ]}),
       p([t("*If Individual PAN is not available, then form 60 should be provided.")]),
       p([t("2. Proof of Address -")]),
       new Table({ width: { size: 8500, type: WidthType.DXA }, columnWidths: [4000, 4500], rows: [
-        new TableRow({ children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
-        new TableRow({ children: [cell("Individual (Indian / Foreign National)", 4000), cell("Voter ID/ Driving License / Passport/ Redacted Aadhar", 4500)] }),
-        new TableRow({ children: [cell("Entity (Indian or Foreign)", 4000), cell("Valid Establishment document", 4500)] }),
+        new TableRow({ cantSplit: true, children: [hCell("BO Type", 4000), hCell("Details Required", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Individual (Indian / Foreign National)", 4000), cell("Voter ID/ Driving License / Passport/ Redacted Aadhar", 4500)] }),
+        new TableRow({ cantSplit: true, children: [cell("Entity (Indian or Foreign)", 4000), cell("Valid Establishment document", 4500)] }),
       ]}),
       p([t("3. PAN Number to be provided for Residents/ Entities registered in India.")]),
       p([t("4. In case if BO is a minor, and POI or POA as mentioned above is not available, then valid age proof to be provided.")]),
@@ -1073,16 +1073,31 @@ async function downloadPdf(kind) {
     const pages = document.querySelectorAll("#previewBody section.docx");
     if (!pages.length) throw new Error("No preview pages found");
     const pdfName = previewArtifact.filename.replace(/\.docx$/i, ".pdf");
-    const common = { margin: 0, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" }, jsPDF: { unit: "mm", format: "a4", orientation: "portrait" } };
+    const common = { margin: 0, image: { type: "jpeg", quality: 0.99 }, html2canvas: { scale: 2.2, useCORS: true, backgroundColor: "#ffffff", logging: false }, jsPDF: { unit: "mm", format: "a4", orientation: "portrait" } };
+    const canvases = [];
+    for (const page of pages) {
+      canvases.push(await window.html2pdf().set(common).from(page).toCanvas().get("canvas"));
+    }
     const firstWorker = window.html2pdf().set({ ...common, filename: pdfName }).from(pages[0]).toPdf();
     const pdf = await firstWorker.get("pdf");
-    for (let index = 1; index < pages.length; index++) {
-      const canvas = await window.html2pdf().set(common).from(pages[index]).toCanvas().get("canvas");
-      const image = canvas.toDataURL("image/jpeg", 0.98);
-      const height = Math.min(297, 210 * canvas.height / canvas.width);
-      pdf.addPage("a4", "portrait");
-      pdf.addImage(image, "JPEG", 0, 0, 210, height);
+    // Replace html2pdf's first-page image with a page-fitted render, then add
+    // one image per DOCX page so no table can be split by automatic pagination.
+    for (let index = 0; index < canvases.length; index++) {
+      const canvas = canvases[index];
+      const image = canvas.toDataURL("image/jpeg", 0.99);
+      const ratioHeight = 210 * canvas.height / canvas.width;
+      const drawHeight = Math.min(297, ratioHeight);
+      const drawWidth = drawHeight === 297 ? 297 * canvas.width / canvas.height : 210;
+      const x = (210 - drawWidth) / 2;
+      if (index === 0) {
+        pdf.deletePage(1);
+        pdf.addPage("a4", "portrait");
+      } else {
+        pdf.addPage("a4", "portrait");
+      }
+      pdf.addImage(image, "JPEG", x, 0, drawWidth, drawHeight);
     }
+    if (pdf.getNumberOfPages() > canvases.length) pdf.deletePage(1);
     await pdf.save(pdfName);
     logToSheet();
     showToast("PDF download started", "ok");

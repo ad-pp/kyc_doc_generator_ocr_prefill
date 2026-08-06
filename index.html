@@ -10,10 +10,10 @@
 :root{--pe:#5f259f;--pe2:#7b3fc4;--pale:#f5f0ff;--gold:#b77a12;--green:#16754a;--red:#bd3328;--bg:#f3f4f8;--card:#fff;--bdr:#dedfea;--txt:#171523;--muted:#666579;--shadow:0 10px 30px rgba(35,24,62,.08)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:radial-gradient(circle at 50% -180px,#e9dcff 0,transparent 420px),var(--bg);color:var(--txt);min-height:100vh}
-header{background:#24103e;padding:13px max(18px,calc((100vw - 900px)/2));display:flex;align-items:center;gap:12px;box-shadow:0 4px 18px rgba(31,18,53,.22);position:sticky;top:0;z-index:50}
+.app-header{background:#24103e;padding:13px max(18px,calc((100vw - 900px)/2));display:flex;align-items:center;gap:12px;box-shadow:0 4px 18px rgba(31,18,53,.22);position:sticky;top:0;z-index:50}
 .logo{width:38px;height:38px;background:linear-gradient(145deg,#fff,#eee7fa);border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:var(--pe);flex:0 0 auto;box-shadow:inset 0 0 0 1px rgba(255,255,255,.7)}
-header h1{color:#fff;font-size:16px;font-weight:750;line-height:1.2;letter-spacing:-.15px}
-header p{color:rgba(255,255,255,.75);font-size:11px;margin-top:1px}
+.app-header h1{color:#fff;font-size:16px;font-weight:750;line-height:1.2;letter-spacing:-.15px}
+.app-header p{color:rgba(255,255,255,.75);font-size:11px;margin-top:1px}
 .saved{margin-left:auto;background:rgba(255,255,255,.18);color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;white-space:nowrap;flex:0 0 auto}
 .wrap{max-width:900px;margin:0 auto;padding:22px 14px 90px}
 
@@ -135,12 +135,12 @@ header p{color:rgba(255,255,255,.75);font-size:11px;margin-top:1px}
 .pdf-export{position:fixed;left:-100000px;top:0;width:210mm;background:#fff}
 .pdf-export section.docx{width:210mm!important;min-height:297mm!important;margin:0!important;box-shadow:none!important;break-after:page;page-break-after:always}
 .pdf-export section.docx:last-child{break-after:auto;page-break-after:auto}
-@media(max-width:600px){header{padding:11px 12px}.wrap{padding:15px 10px 82px}.saved{display:none}.cbd{padding:14px}.act{position:sticky;bottom:0;background:rgba(243,244,248,.95);padding:10px 0;z-index:20}.act>.btn{flex:1}.reset-actions{width:100%}.reset-actions .btn{flex:1}.doc-btns{display:grid;grid-template-columns:1fr 1fr}.doc-btns .btn{width:100%;padding:10px 8px}.preview-modal{padding:0}.preview-shell{border-radius:0}.preview-head{flex-wrap:wrap}.preview-note{width:100%;order:3}.preview-body{padding:8px}.preview-body section.docx{transform-origin:top left}}
+@media(max-width:600px){.app-header{padding:11px 12px}.wrap{padding:15px 10px 82px}.saved{display:none}.cbd{padding:14px}.act{position:sticky;bottom:0;background:rgba(243,244,248,.95);padding:10px 0;z-index:20}.act>.btn{flex:1}.reset-actions{width:100%}.reset-actions .btn{flex:1}.doc-btns{display:grid;grid-template-columns:1fr 1fr}.doc-btns .btn{width:100%;padding:10px 8px}.preview-modal{padding:0}.preview-shell{border-radius:0}.preview-head{flex-wrap:wrap}.preview-note{width:100%;order:3}.preview-body{padding:8px}.preview-body section.docx{transform-origin:top left}}
 @media print{body>*:not(#previewModal){display:none!important}#previewModal{position:static!important;display:block!important;background:#fff!important;padding:0!important}#previewModal .preview-shell{display:block!important;width:auto!important;box-shadow:none!important;border-radius:0!important;background:#fff!important}.preview-head{display:none!important}.preview-body{overflow:visible!important;padding:0!important}.preview-body .docx-wrapper{padding:0!important}.preview-body section.docx{box-shadow:none!important;margin:0 auto!important}}
 </style>
 </head>
 <body>
-<header>
+<header class="app-header">
   <div class="logo">DG</div>
   <div>
     <h1>Onboarding Document Generator</h1>
@@ -166,6 +166,6 @@ header p{color:rgba(255,255,255,.75);font-size:11px;margin-top:1px}
     <div class="preview-body" id="previewBody"><div class="preview-loading">Preparing preview…</div></div>
   </div>
 </div>
-<script type="module" src="./app.js?v=6"></script>
+<script type="module" src="./app.js?v=7"></script>
 </body>
 </html>
