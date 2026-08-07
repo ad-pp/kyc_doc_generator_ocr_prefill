@@ -99,12 +99,14 @@ const docOptionsMap = {
       { id: "set2", label: "BO Declaration" },
       { id: "set3", label: "Partner Resolution + BO Declaration" },
       { id: "set4", label: "Partner Resolution + BO Declaration + ACE OSV (MDF)" },
+      { id: "set17", label: "ACE OSV (MDF)" },
     ],
     company: [
       { id: "set5", label: "Board Resolution" },
       { id: "set6", label: "BO Declaration" },
       { id: "set7", label: "Board Resolution + BO Declaration" },
       { id: "set8", label: "Board Resolution + BO Declaration + ACE OSV (MDF)" },
+      { id: "set18", label: "ACE OSV (MDF)" },
     ],
   },
   salesforce: {
@@ -124,7 +126,7 @@ const docOptionsMap = {
 };
 const needsResolution = (set) => ["set1","set3","set4","set5","set7","set8","set9","set12","set13","set16"].includes(set);
 const needsBO         = (set) => ["set2","set3","set4","set6","set7","set8","set10","set12","set14","set16"].includes(set);
-const needsMDF        = (set) => ["set4","set8","set11","set12","set15","set16"].includes(set);
+const needsMDF        = (set) => ["set4","set8","set11","set12","set15","set16","set17","set18"].includes(set);
 const needsFullKYC    = (set) => needsBO(set);
 const needsOwnership = (set) => needsBO(set) || needsResolution(set);
 
@@ -156,7 +158,7 @@ function loadMerchant() {
     if (!state.pepStatusBO) state.pepStatusBO = "no";
     // v4 letterhead uses the legal firm name and main-office address directly.
     delete state.lhTagline; delete state.lhPhone; delete state.lhEmail; delete state.lhWebsite;
-    const allowedSets = ["set1","set2","set3","set4","set5","set6","set7","set8","set9","set10","set11","set12","set13","set14","set15","set16"];
+    const allowedSets = ["set1","set2","set3","set4","set5","set6","set7","set8","set9","set10","set11","set12","set13","set14","set15","set16","set17","set18"];
     if (!allowedSets.includes(state.docRequirement)) state.docRequirement = null;
   } catch (e) {}
 }
@@ -601,17 +603,18 @@ function sigTable(members) {
   });
 }
 function buildLetterheadHeader(lh) {
-  const lt = (text, opts={}) => new TextRun({ text: text||"", font: "Arial", size: 20, ...opts });
-  const logoCell = new TableCell({ borders: noBdrs, width: { size: 3000, type: WidthType.DXA }, margins: { top:0,bottom:0,left:0,right:120 },
+  const firmName = lh.firmName || "";
+  const officeLine = lh.regAddress ? "Regd Office: " + lh.regAddress + (lh.principalSame === "diff" && lh.principalAddress ? " | Principal Office: " + lh.principalAddress : "") : "";
+  const firmSize = firmName.length > 32 ? 22 : firmName.length > 22 ? 24 : 28;
+  const officeSize = officeLine.length > 110 ? 13 : officeLine.length > 80 ? 15 : 18;
+  const lt = (text, opts={}) => new TextRun({ text: text||"", font: "Arial", size: officeSize, ...opts });
+  const logoCell = new TableCell({ borders: noBdrs, noWrap: true, width: { size: 3200, type: WidthType.DXA }, margins: { top:0,bottom:0,left:0,right:120 },
     children: [
-      new Paragraph({ children: [new TextRun({ text: lh.firmName||"", font:"Arial", size:28, bold:true, color:"000000" })], spacing:{after:0} }),
+      new Paragraph({ children: [new TextRun({ text: firmName, font:"Arial", size:firmSize, bold:true, color:"000000" })], spacing:{after:0} }),
     ]});
-  const contactLines = [
-    lh.regAddress ? "Regd Office: " + lh.regAddress + (lh.principalSame === "diff" && lh.principalAddress ? " | Principal Office: " + lh.principalAddress : "") : null,
-  ].filter(Boolean);
-  const contactCell = new TableCell({ borders: noBdrs, width: { size: 7080, type: WidthType.DXA }, margins:{top:0,bottom:0,left:120,right:0},
-    children: contactLines.map((line) => new Paragraph({ children:[lt(line,{bold:true,color:"000000"})], alignment: AlignmentType.RIGHT, spacing:{after:0} })) });
-  const lhTable = new Table({ width:{size:10080,type:WidthType.DXA}, columnWidths:[3000,7080], borders: noBdrs, rows:[new TableRow({cantSplit:true,children:[logoCell,contactCell]})] });
+  const contactCell = new TableCell({ borders: noBdrs, noWrap: true, width: { size: 6880, type: WidthType.DXA }, margins:{top:0,bottom:0,left:120,right:0},
+    children: [new Paragraph({ children:[lt(officeLine,{bold:true,color:"000000"})], alignment: AlignmentType.RIGHT, spacing:{after:0} })] });
+  const lhTable = new Table({ width:{size:10080,type:WidthType.DXA}, columnWidths:[3200,6880], borders: noBdrs, rows:[new TableRow({cantSplit:true,children:[logoCell,contactCell]})] });
   const hrPara = new Paragraph({ children: [], border: { bottom: { style: BorderStyle.SINGLE, size: 5, color: "5F259F", space: 3 } }, spacing: { after: 80 } });
   return new Header({ children: [lhTable, hrPara] });
 }
@@ -658,14 +661,17 @@ async function buildPartnershipResolution(d) {
       p([]),
       p([t("Seal of the Firm")], { alignment: AlignmentType.CENTER }),
 
-      new Paragraph({ children: [new PageBreak()], spacing: { after: 0 } }),
-      p([]),
+    ],
+  }, {
+    properties: { page: pageSetup(false) },
+    headers: { default: new Header({ children: [] }) },
+    children: [
       new Paragraph({ children: [new TextRun({ text: "Declaration", font: "Times New Roman", size: 24, bold: true })], spacing: { after: 160 } }),
       new Paragraph({ children: [t("I/we, the undersigned individuals, hereby personally, jointly, and severally undertake and declare that:")], spacing: { after: 160 } }),
       new Paragraph({ children: [t("1. Our firm "), u(d.firmName), t(" is constituted as a partnership firm and it is")], spacing: { after: 80 } }),
       p([t((d.isRegistered ? "\u2611" : "\u2610") + " Registered (LLP or Registry done in Registrar office of the Deed)")], { indent: { left: 720 } }),
       p([t((!d.isRegistered ? "\u2611" : "\u2610") + " Unregistered (Normal Deed Notarized or not Notarized)")], { indent: { left: 720 } }),
-      new Paragraph({ children: [t("2. The partners holding more than 15% shares/control for registered partnership and 10% shares/control for un-registered partnership are beneficial owners of the entity. In case no natural person holds more than 10%/15% shares/control in the entity, the authorised signatory should be considered as senior management for the purpose of BO identification.")], spacing: { after: 100 } }),
+      new Paragraph({ children: [t("2. The partners holding more than 10% shares/control for registered partnership and 15% shares/control for un-registered partnership are beneficial owners of the entity. In case no natural person holds more than 10%/15% shares/control in the entity, the authorised signatory should be considered as senior management for the purpose of BO identification.")], spacing: { after: 100 } }),
       new Paragraph({ children: [t(versionFiveDeclaration)], spacing: { after: 100 } }),
       new Paragraph({ children: [t("4. Our personnel(s), partner(s), director(s), officer(s), or our family member(s) or our close associate(s) and beneficial owners, is a Politically Exposed Person. (\u201cPolitically Exposed Persons\u201d (PEPs) are individuals who are or have been entrusted with prominent public functions by a foreign country, including the Heads of States/Governments, senior politicians, senior government or judicial or military officers, senior executives of state-owned corporations and important political party officials.)")], spacing: { after: 80 } }),
       p([t((d.pepStatusRes === "yes" ? "\u2611" : "\u2610") + " YES     " + (d.pepStatusRes === "no" ? "\u2611" : "\u2610") + " NO")], { indent: { left: 720 } }),
@@ -1075,10 +1081,24 @@ async function downloadPdf(kind) {
     const pdfName = previewArtifact.filename.replace(/\.docx$/i, ".pdf");
     const common = { margin: 0, image: { type: "jpeg", quality: 0.99 }, html2canvas: { scale: 2.2, useCORS: true, backgroundColor: "#ffffff", logging: false }, jsPDF: { unit: "mm", format: "a4", orientation: "portrait" } };
     const canvases = [];
+    const exportRoot = document.createElement("div");
+    exportRoot.className = "pdf-export-root";
+    document.body.appendChild(exportRoot);
     for (const page of pages) {
-      canvases.push(await window.html2pdf().set(common).from(page).toCanvas().get("canvas"));
+      const clone = page.cloneNode(true);
+      clone.style.position = "relative";
+      clone.style.top = "0";
+      clone.style.left = "0";
+      clone.style.margin = "0";
+      clone.style.transform = "none";
+      exportRoot.appendChild(clone);
+      canvases.push(await window.html2pdf().set(common).from(clone).toCanvas().get("canvas"));
+      clone.remove();
     }
-    const firstWorker = window.html2pdf().set({ ...common, filename: pdfName }).from(pages[0]).toPdf();
+    const firstClone = pages[0].cloneNode(true);
+    firstClone.style.cssText += ";position:relative;top:0;left:0;margin:0;transform:none";
+    exportRoot.appendChild(firstClone);
+    const firstWorker = window.html2pdf().set({ ...common, filename: pdfName }).from(firstClone).toPdf();
     const pdf = await firstWorker.get("pdf");
     // Replace html2pdf's first-page image with a page-fitted render, then add
     // one image per DOCX page so no table can be split by automatic pagination.
@@ -1099,6 +1119,7 @@ async function downloadPdf(kind) {
     }
     if (pdf.getNumberOfPages() > canvases.length) pdf.deletePage(1);
     await pdf.save(pdfName);
+    exportRoot.remove();
     logToSheet();
     showToast("PDF download started", "ok");
   } catch (error) {
