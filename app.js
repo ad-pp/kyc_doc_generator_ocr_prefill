@@ -10,7 +10,7 @@ import * as docxLib from "./vendor/docx-8.2.2.js";
 // Logs ONLY: timestamp, agent mobile number, merchant display name / ID.
 const SHEETS_URL = "https://script.google.com/a/macros/phonepe.com/s/AKfycbyOU_MKNPCXOPT7CYAAf2tmqZsQNSVTbP92QY-gw991gyJrEQdA7Tu_c_FlCsyxIn9_/exec"; // e.g. "https://script.google.com/macros/s/XXXXXXXX/exec"
 const OCR_PROXY_URL = "";
-const GEMINI_API_KEY = "";
+const GEMINI_API_KEY = "AQ.Ab8RN6JoVIS5zgqKj78Hajj1JU-Fjt-f-WhrUaOMUEievQwhBw";
 const GEMINI_MODEL = "gemini-2.5-flash";
 
 const LS_MERCHANT = "docgen_merchant_v1";   // clears per onboarding
