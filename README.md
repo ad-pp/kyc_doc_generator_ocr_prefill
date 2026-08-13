@@ -5,6 +5,54 @@ merchant/entity details once and generate every required onboarding
 document (Partner/Board Resolution, BO Declaration, MDF) as real Word
 (`.docx`) files or print-to-PDF — no backend server required.
 
+## Partnership deed upload prefill prototype
+
+This branch adds a **Partnership Firm-only** upload flow that can:
+
+1. Upload a partnership deed/agreement
+2. Run OCR through a configurable provider
+3. Send OCR text to Gemini for structured extraction
+4. Show **suggested** prefills that the agent must review before generation
+
+The current prototype keeps the integration provider-swappable:
+
+- `OCR_PROXY_URL` in `app.js` — OCR provider endpoint
+- `GEMINI_API_KEY` in `app.js` — Gemini key for extraction
+- `GEMINI_MODEL` in `app.js` — Gemini model name
+
+### Where to put the Gemini key
+
+Open `app.js` and update:
+
+```js
+const GEMINI_API_KEY = "";
+```
+
+For the current prototype, the OCR hook expects a JSON endpoint in:
+
+```js
+const OCR_PROXY_URL = "";
+```
+
+Expected OCR response shape:
+
+```json
+{
+  "text": "full extracted text",
+  "pages": [
+    { "page": 1, "text": "page 1 text" }
+  ],
+  "warnings": []
+}
+```
+
+### Important limits
+
+- Upload prefill is enabled only for **Partnership Firm** flows.
+- Only explicit deed facts should be accepted into the form.
+- Ambiguous or missing fields must stay blank.
+- Document generation still relies on the app's existing validation rules.
+
 ## What's in this folder
 
 - `index.html` — the page shell (styles + layout container). Open this file.

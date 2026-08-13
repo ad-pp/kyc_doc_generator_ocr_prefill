@@ -9,6 +9,9 @@ import * as docxLib from "./vendor/docx-8.2.2.js";
 // Paste your Google Apps Script Web App URL here (see google-apps-script.gs).
 // Logs ONLY: timestamp, agent mobile number, merchant display name / ID.
 const SHEETS_URL = "https://script.google.com/a/macros/phonepe.com/s/AKfycbyOU_MKNPCXOPT7CYAAf2tmqZsQNSVTbP92QY-gw991gyJrEQdA7Tu_c_FlCsyxIn9_/exec"; // e.g. "https://script.google.com/macros/s/XXXXXXXX/exec"
+const OCR_PROXY_URL = "";
+const GEMINI_API_KEY = "";
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 const LS_MERCHANT = "docgen_merchant_v1";   // clears per onboarding
 const LS_AGENT    = "docgen_agent_v1";      // permanent - agent mobile only
@@ -87,6 +90,15 @@ const state = {
   formValidated: false,
   inlineErrors: {},
   toastMessage: "",
+
+  // Partnership deed OCR + LLM assisted prefill
+  extractionFileName: "",
+  extractionStatus: "idle",   // idle | running | done | error
+  extractionError: "",
+  extractionWarnings: [],
+  extractionRawText: "",
+  extractionResult: null,
+  extractionApplied: false,
 };
 
 let formData = {};
@@ -201,6 +213,7 @@ function resetSection(section) {
   if (section === "mdf") Object.assign(state, { mdfAuthName: "", mdfAuthDesignation: state.entityType === "partnership" ? "Partner" : "Director", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "no", mdfDateRaw: "", mdfPlace: "" });
   state.inlineErrors = {};
   state.formValidated = false;
+  if (section === "entity") resetExtractionState();
   saveMerchant();
   rerender();
 }
@@ -213,6 +226,7 @@ function resetPage() {
   if (state.step === 2) state.docRequirement = null;
   if (state.step === 3) {
     Object.assign(state, { firmName: "", regAddress: "", includeLetterhead: true, principalSame: "same", principalAddress: "", partnershipRegType: "", deedDate: "", partners: [INITIAL_PARTNER(1, state.entityType === "company" ? "Director" : "Partner"), INITIAL_PARTNER(2, state.entityType === "company" ? "Director" : "Partner")], nextPartnerId: 3, presentPartnerIds: [], resolutionDateRaw: "", resolutionTimeRaw: "", resolutionVersion: "v5a", pepStatusRes: "no", isOPC: false, opcApprovalConfirmed: false, boDate: "", boCategory: "cat1", pepStatusBO: "no", companyListingStatus: "not_listed", stockExchangeName: "", boExternalAS: false, boExternalASName: "", boExternalASDesignation: "", mdfAuthName: "", mdfAuthDesignation: state.entityType === "partnership" ? "Partner" : "Director", mdfAuthPan: "", mdfMobile: "", mdfEmail: "", mdfPwd: "no", mdfPwdType: "", mdfPwdPct: "", mdfFatherName: "", mdfKycDoc: "aadhaar", mdfEntityNature: "na", mdfTanStatus: "no_tan", mdfTanNum: "", mdfGstStatus: "no_gst", mdfGstNum: "", mdfPepStatus: "no", mdfDateRaw: "", mdfPlace: "" });
+    resetExtractionState();
   }
   state.inlineErrors = {};
   state.formValidated = false;
@@ -363,6 +377,24 @@ function sanitizeShare(value = "") {
   if (firstDot !== -1) cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, "");
   return cleaned === "" || cleaned === "." ? cleaned : (Number(cleaned) > 100 ? "100" : cleaned);
 }
+function clampConfidence(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(1, numeric));
+}
+function confidenceLabel(value) {
+  const score = clampConfidence(value);
+  if (score >= 0.85) return "High confidence";
+  if (score >= 0.6) return "Medium confidence";
+  return "Low confidence";
+}
+function summarizeSource(source = []) {
+  const first = Array.isArray(source) && source.length ? source[0] : null;
+  if (!first) return "";
+  const page = first.page ? "Page " + first.page : "";
+  const snippet = first.snippet ? String(first.snippet).trim() : "";
+  return [page, snippet].filter(Boolean).join(" — ");
+}
 
 // ---- DERIVED DATA ----
 function computeDerived() {
@@ -391,6 +423,236 @@ function computeDerived() {
     authSignatoryName: authSignatory ? authSignatory.name : "",
     authSignatoryDesignation: authSignatory ? authSignatory.designation : "",
   };
+}
+
+function createFieldSuggestion(value = "", confidence = 0, source = [], warning = "") {
+  return { value: value == null ? "" : String(value), confidence: clampConfidence(confidence), source: Array.isArray(source) ? source : [], warning: warning || "" };
+}
+function getSuggestionValue(field) {
+  return field && typeof field.value === "string" ? field.value.trim() : "";
+}
+function applyFieldSuggestion(field, apply) {
+  const value = getSuggestionValue(field);
+  if (!value) return false;
+  apply(value);
+  return true;
+}
+function normalizeExtractionShape(payload) {
+  const entity = payload && payload.entity ? payload.entity : {};
+  const partners = Array.isArray(payload && payload.partners) ? payload.partners : [];
+  return {
+    documentType: payload && payload.documentType ? payload.documentType : "partnership_deed",
+    sourceQuality: {
+      ocrReadable: !(payload && payload.sourceQuality && payload.sourceQuality.ocrReadable === false),
+      warnings: Array.isArray(payload && payload.sourceQuality && payload.sourceQuality.warnings) ? payload.sourceQuality.warnings : [],
+    },
+    entity: {
+      firmName: createFieldSuggestion(entity.firmName && entity.firmName.value, entity.firmName && entity.firmName.confidence, entity.firmName && entity.firmName.source, entity.firmName && entity.firmName.warning),
+      regAddress: createFieldSuggestion(entity.regAddress && entity.regAddress.value, entity.regAddress && entity.regAddress.confidence, entity.regAddress && entity.regAddress.source, entity.regAddress && entity.regAddress.warning),
+      principalAddress: createFieldSuggestion(entity.principalAddress && entity.principalAddress.value, entity.principalAddress && entity.principalAddress.confidence, entity.principalAddress && entity.principalAddress.source, entity.principalAddress && entity.principalAddress.warning),
+      partnershipRegType: createFieldSuggestion(entity.partnershipRegType && entity.partnershipRegType.value, entity.partnershipRegType && entity.partnershipRegType.confidence, entity.partnershipRegType && entity.partnershipRegType.source, entity.partnershipRegType && entity.partnershipRegType.warning),
+      deedDate: createFieldSuggestion(entity.deedDate && entity.deedDate.value, entity.deedDate && entity.deedDate.confidence, entity.deedDate && entity.deedDate.source, entity.deedDate && entity.deedDate.warning),
+    },
+    partners: partners.map((partner) => ({
+      name: createFieldSuggestion(partner && partner.name && partner.name.value, partner && partner.name && partner.name.confidence, partner && partner.name && partner.name.source, partner && partner.name && partner.name.warning),
+      designation: createFieldSuggestion(partner && partner.designation && partner.designation.value, partner && partner.designation && partner.designation.confidence, partner && partner.designation && partner.designation.source, partner && partner.designation && partner.designation.warning),
+      address: createFieldSuggestion(partner && partner.address && partner.address.value, partner && partner.address && partner.address.confidence, partner && partner.address && partner.address.source, partner && partner.address && partner.address.warning),
+      share: createFieldSuggestion(partner && partner.share && partner.share.value, partner && partner.share && partner.share.confidence, partner && partner.share && partner.share.source, partner && partner.share && partner.share.warning),
+    })),
+    unmappedNotes: Array.isArray(payload && payload.unmappedNotes) ? payload.unmappedNotes : [],
+  };
+}
+function extractionEnabled() {
+  return state.entityType === "partnership";
+}
+function resetExtractionState(keepFileName = false) {
+  state.extractionStatus = "idle";
+  state.extractionError = "";
+  state.extractionWarnings = [];
+  state.extractionRawText = "";
+  state.extractionResult = null;
+  state.extractionApplied = false;
+  if (!keepFileName) state.extractionFileName = "";
+}
+async function readFileAsBase64(file) {
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+async function extractTextWithProvider(file) {
+  if (!OCR_PROXY_URL.trim()) {
+    const text = await file.text();
+    return { pages: [{ page: 1, text }], text, warnings: ["OCR proxy URL is not configured, so plain file text was used where available."] };
+  }
+  const response = await fetch(OCR_PROXY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      contentBase64: await readFileAsBase64(file),
+    }),
+  });
+  if (!response.ok) throw new Error("OCR request failed with status " + response.status);
+  const payload = await response.json();
+  const pages = Array.isArray(payload.pages) ? payload.pages : [];
+  const text = payload.text || pages.map((page) => page.text || "").join("\n\n");
+  return { pages, text, warnings: Array.isArray(payload.warnings) ? payload.warnings : [] };
+}
+function buildGeminiPrompt(ocrResult) {
+  return [
+    "You extract structured data from Indian partnership deeds or partnership agreements.",
+    "Return JSON only. Do not wrap in markdown.",
+    "Rules:",
+    "1. Extract only facts explicitly present in the OCR text.",
+    "2. If a field is unclear, conflicting, or absent, leave value empty and add a warning when helpful.",
+    "3. Do not infer PAN, DOB, Aadhaar, POA, PEP, BO category, or MDF-specific fields.",
+    "4. partnershipRegType must be one of: registered, unregistered, or empty.",
+    "5. share should be a numeric percentage string only when directly present.",
+    "6. Include provenance using page numbers and short snippets.",
+    "Schema:",
+    JSON.stringify({
+      documentType: "partnership_deed",
+      sourceQuality: { ocrReadable: true, warnings: [] },
+      entity: {
+        firmName: { value: "", confidence: 0, source: [], warning: "" },
+        regAddress: { value: "", confidence: 0, source: [], warning: "" },
+        principalAddress: { value: "", confidence: 0, source: [], warning: "" },
+        partnershipRegType: { value: "", confidence: 0, source: [], warning: "" },
+        deedDate: { value: "", confidence: 0, source: [], warning: "" },
+      },
+      partners: [
+        {
+          name: { value: "", confidence: 0, source: [], warning: "" },
+          designation: { value: "", confidence: 0, source: [], warning: "" },
+          address: { value: "", confidence: 0, source: [], warning: "" },
+          share: { value: "", confidence: 0, source: [], warning: "" },
+        },
+      ],
+      unmappedNotes: [],
+    }),
+    "OCR TEXT:",
+    ocrResult.pages.map((page, index) => "Page " + (page.page || index + 1) + ":\n" + (page.text || "")).join("\n\n"),
+  ].join("\n");
+}
+async function extractStructuredDataWithGemini(ocrResult) {
+  if (!GEMINI_API_KEY.trim()) throw new Error("Gemini API key is not configured.");
+  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(GEMINI_MODEL) + ":generateContent?key=" + encodeURIComponent(GEMINI_API_KEY.trim());
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      generationConfig: { responseMimeType: "application/json" },
+      contents: [{ role: "user", parts: [{ text: buildGeminiPrompt(ocrResult) }] }],
+    }),
+  });
+  if (!response.ok) throw new Error("Gemini extraction failed with status " + response.status);
+  const payload = await response.json();
+  const text = payload && payload.candidates && payload.candidates[0] && payload.candidates[0].content && payload.candidates[0].content.parts && payload.candidates[0].content.parts[0] && payload.candidates[0].content.parts[0].text;
+  if (!text) throw new Error("Gemini returned an empty extraction response.");
+  return normalizeExtractionShape(JSON.parse(text));
+}
+function applyExtractionToState() {
+  if (!state.extractionResult) return;
+  const result = state.extractionResult;
+  const entity = result.entity || {};
+  applyFieldSuggestion(entity.firmName, (value) => { state.firmName = value; });
+  applyFieldSuggestion(entity.regAddress, (value) => { state.regAddress = value; });
+  if (applyFieldSuggestion(entity.principalAddress, (value) => { state.principalSame = "diff"; state.principalAddress = value; }) === false && getSuggestionValue(entity.regAddress)) {
+    state.principalSame = "same";
+  }
+  applyFieldSuggestion(entity.partnershipRegType, (value) => {
+    if (value === "registered" || value === "unregistered") state.partnershipRegType = value;
+  });
+  applyFieldSuggestion(entity.deedDate, (value) => { state.deedDate = value; });
+  if (result.partners && result.partners.length) {
+    state.partners = result.partners.map((partner, index) => ({
+      ...INITIAL_PARTNER(index + 1, "Partner"),
+      name: getSuggestionValue(partner.name),
+      designation: getSuggestionValue(partner.designation) || "Partner",
+      address: getSuggestionValue(partner.address),
+      share: sanitizeShare(getSuggestionValue(partner.share).replace(/%/g, "")),
+    }));
+    state.nextPartnerId = state.partners.length + 1;
+  }
+  state.extractionApplied = true;
+  state.formValidated = false;
+  scheduleSave();
+  rerender();
+}
+async function handleExtractionUpload(event) {
+  const file = event.target && event.target.files && event.target.files[0];
+  if (!file) return;
+  state.extractionFileName = file.name;
+  state.extractionStatus = "running";
+  state.extractionError = "";
+  state.extractionWarnings = [];
+  state.extractionApplied = false;
+  rerender();
+  try {
+    const ocrResult = await extractTextWithProvider(file);
+    state.extractionRawText = ocrResult.text || "";
+    const extractionResult = await extractStructuredDataWithGemini(ocrResult);
+    state.extractionResult = extractionResult;
+    state.extractionWarnings = [...(ocrResult.warnings || []), ...(extractionResult.sourceQuality.warnings || [])];
+    state.extractionStatus = "done";
+    rerender();
+  } catch (error) {
+    console.error(error);
+    state.extractionStatus = "error";
+    state.extractionError = error.message || "Extraction failed.";
+    rerender();
+  } finally {
+    if (event.target) event.target.value = "";
+  }
+}
+function renderSuggestionCard(title, field) {
+  const value = getSuggestionValue(field);
+  if (!value) return "";
+  const confidence = confidenceLabel(field.confidence);
+  const snippet = summarizeSource(field.source);
+  const pillClass = clampConfidence(field.confidence) >= 0.85 ? "ok" : clampConfidence(field.confidence) >= 0.6 ? "warn" : "muted";
+  return '<div class="prefill-card"><h4>' + esc(title) + '</h4><div><strong>' + esc(value) + '</strong></div><div class="pill-row" style="margin-top:8px"><span class="pill ' + pillClass + '">' + esc(confidence) + '</span>' + (field.warning ? '<span class="pill warn">' + esc(field.warning) + '</span>' : '') + '</div>' + (snippet ? '<div class="prefill-snippet">' + esc(snippet) + '</div>' : '') + '</div>';
+}
+function renderPartnerSuggestionCard(partner, index) {
+  const pieces = [
+    renderSuggestionCard("Name", partner.name),
+    renderSuggestionCard("Designation", partner.designation),
+    renderSuggestionCard("Address", partner.address),
+    renderSuggestionCard("Share", partner.share),
+  ].filter(Boolean).join("");
+  if (!pieces) return "";
+  return '<div class="prefill-card"><h4>Partner ' + (index + 1) + '</h4><div class="prefill-grid">' + pieces + '</div></div>';
+}
+function partnershipUploadHTML() {
+  if (!extractionEnabled()) return "";
+  const result = state.extractionResult;
+  return '<div class="card"><div class="chd"><h2>\ud83e\udde0 Partnership Deed Upload Prefill</h2><span class="badge">Prototype</span></div><div class="cbd">' +
+    '<div class="info-blue">Upload a partnership deed/agreement to prefill explicit facts only. Every value still needs manual review before document generation.</div>' +
+    '<div class="upload-box">' +
+      '<div class="f"><label>Upload Partnership Deed / Agreement</label><input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp" ' + on("change", handleExtractionUpload) + ' /><span class="hint">Configure <code>OCR_PROXY_URL</code> for OCR and <code>GEMINI_API_KEY</code> for extraction in <code>app.js</code>.</span></div>' +
+      (state.extractionFileName ? '<div class="prefill-meta">Selected file: <strong>' + esc(state.extractionFileName) + '</strong></div>' : '') +
+      (state.extractionStatus === "running" ? '<div class="info-green" style="margin-top:10px"><span class="spin" style="border-top-color:#1f8f54;border-color:rgba(31,143,84,.25)"></span> Extracting deed text and mapping fields…</div>' : '') +
+      (state.extractionStatus === "error" ? '<div class="error-box" style="margin-top:10px">' + esc(state.extractionError) + '</div>' : '') +
+      (state.extractionWarnings.length ? '<div class="warn-box" style="margin-top:10px"><strong>Warnings:</strong><ul>' + state.extractionWarnings.map((warning) => '<li>' + esc(warning) + '</li>').join("") + '</ul></div>' : '') +
+      (result ? '<div style="margin-top:12px"><div class="act" style="padding-top:0"><button type="button" class="btn btn-p" ' + on("click", applyExtractionToState) + '>Apply Suggested Prefill</button><button type="button" class="btn btn-s" ' + on("click", () => { resetExtractionState(); rerender(); }) + '>Clear Suggestions</button></div>' +
+        '<div class="prefill-grid" style="margin-top:8px">' +
+          renderSuggestionCard("Firm name", result.entity.firmName) +
+          renderSuggestionCard("Registered address", result.entity.regAddress) +
+          renderSuggestionCard("Principal address", result.entity.principalAddress) +
+          renderSuggestionCard("Registration type", result.entity.partnershipRegType) +
+          renderSuggestionCard("Deed date", result.entity.deedDate) +
+        '</div>' +
+        (result.partners && result.partners.length ? '<div class="divider">Suggested partner rows</div>' + result.partners.map(renderPartnerSuggestionCard).join("") : '') +
+        (result.unmappedNotes && result.unmappedNotes.length ? '<div class="warn-box" style="margin-top:12px"><strong>Unmapped notes:</strong><ul>' + result.unmappedNotes.map((note) => '<li>' + esc(note) + '</li>').join("") + '</ul></div>' : '') +
+      '</div>' : '') +
+    '</div>' +
+  '</div></div>';
 }
 
 // ---- PARTNER CRUD ----
@@ -1225,6 +1487,7 @@ function renderApp() {
   // ---- STEP 1: Platform + Entity ----
   if (state.step === 1) {
     return '<div class="card"><div class="chd"><h2>\ud83c\udfe2 Onboarding Platform & Entity Type</h2><button class="reset-link" ' + on("click", () => resetSection("platform")) + '>Reset section</button><span class="badge">Step 2 of 5</span></div><div class="cbd">' +
+      '<div class="info-blue"><strong>Prototype scope:</strong> deed upload prefill is enabled only for Partnership Firm flows. Company flow remains manual.</div>' +
       '<div class="divider">Onboarding Platform</div><div class="rg">' +
         '<label><input type="radio" name="platform" ' + (state.onboardingType === "ace" ? "checked" : "") + " " + on("change", () => { state.onboardingType = "ace"; state.docRequirement = null; rerender(); }) + " /> ACE</label>" +
         '<label><input type="radio" name="platform" ' + (state.onboardingType === "salesforce" ? "checked" : "") + " " + on("change", () => { state.onboardingType = "salesforce"; state.docRequirement = null; state.mdfPepStatus = "no"; state.mdfAuthDesignation = state.entityType === "company" ? "Director" : "Partner"; rerender(); }) + " /> Salesforce</label>" +
@@ -1250,6 +1513,7 @@ function renderApp() {
     const isFullKyc = needsFullKYC(state.docRequirement);
     const docLabel = (docOptionsMap[state.onboardingType][state.entityType].find(o => o.id === state.docRequirement) || {}).label || "";
     return (
+      partnershipUploadHTML() +
       '<div class="card"><div class="chd"><h2>\ud83c\udfe2 Entity Details</h2><button class="reset-link" ' + on("click", () => resetSection("entity")) + '>Reset section</button><span class="badge">' + esc(docLabel) + '</span></div><div class="cbd">' +
         '<div class="info">This information is captured once and reused across every document you generate for this merchant.</div>' +
         '<div class="g2">' +
