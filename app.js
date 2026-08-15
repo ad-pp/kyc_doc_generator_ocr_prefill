@@ -16,7 +16,7 @@ const SHEETS_URL = "";
 // Cloudflare Worker under worker/ — configured once by the maintainer, never
 // entered by an agent. This is just the Worker's public URL, not a secret.
 // Blank = deed upload is disabled and the form stays fully manual.
-const API_BASE_URL = "";
+const API_BASE_URL = "https://docgen-api.braver-cygnet-0j.workers.dev";
 
 // Photos from a phone camera are 4-8 MB. Downscaling before upload keeps the
 // request small on a 3G connection and well inside the Worker's size cap,

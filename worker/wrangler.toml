@@ -44,9 +44,9 @@ DAILY_LIMIT_PER_IP = "120"
 #   npx wrangler kv namespace create USAGE
 # Without it the Worker still extracts documents; it just cannot enforce
 # per-day caps or keep a central log.
-# [[kv_namespaces]]
-# binding = "USAGE"
-# id = "PASTE_THE_ID_PRINTED_BY_THE_COMMAND_ABOVE"
+[[kv_namespaces]]
+binding = "USAGE"
+id = "f67d5be25eaa46ce95c79df3c3959b93"
 
 # Secrets are NOT set here — this file is committed. Set them once, encrypted:
 #   npx wrangler secret put GEMINI_API_KEY
