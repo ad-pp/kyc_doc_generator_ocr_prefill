@@ -54,7 +54,28 @@ The old Gemini key was exposed in git history and has been revoked. Generate a
 
 ---
 
-## 3. Deploy, step by step
+## 3. Deploy — the one-command path
+
+From the repo root, with Node 18+ installed:
+
+```bash
+git clone https://github.com/ad-pp/kyc_doc_generator_ocr_prefill.git
+cd kyc_doc_generator_ocr_prefill
+bash worker/setup.sh
+```
+
+You will be asked for exactly three things — the Gemini, OCR.space and Groq
+keys — plus one browser approval for the Cloudflare login. The script does the
+rest: creates the KV namespace and writes its id into `wrangler.toml`, stores
+each key as an encrypted secret, deploys the Worker, checks both provider
+chains, then points `app.js` at the deployed URL and bumps the cache version.
+It is safe to re-run.
+
+It finishes by printing the one `git push` needed to publish the app.
+
+The manual equivalent is below, for when something needs doing by hand.
+
+### Manual steps
 
 Run everything from a machine with Node 18+ installed. You do this **once**;
 agents never do any of it.
