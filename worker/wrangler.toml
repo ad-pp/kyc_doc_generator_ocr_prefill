@@ -18,9 +18,14 @@ ALLOWED_ORIGINS = "https://ad-pp.github.io"
 GEMINI_MODEL = "gemini-3.7-flash"
 # Fallback model, reached only when Gemini fails. OpenRouter fronts many
 # models behind one endpoint, so changing this line changes the fallback —
-# no code change. Must be a model that accepts images/PDFs.
-# Check current free models and their limits at https://openrouter.ai/models
-OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
+# no code change. Must accept images/PDFs: https://openrouter.ai/models
+#
+# Pick one whose UPSTREAM is not Google. A :free Google model routes back
+# through Google AI Studio, so it shares the primary's rate limits and outages
+# and is not an independent fallback at all — google/gemma-4-31b-it:free
+# returned 429 "rate-limited upstream ... Google AI Studio" for exactly that
+# reason while the primary was working.
+OPENROUTER_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
 # Parser used for PDF inputs on OpenRouter. "pdf-text" suits digital PDFs;
 # switch to an OCR engine for scanned ones (see OpenRouter's file-parser docs).
 OPENROUTER_PDF_ENGINE = "pdf-text"

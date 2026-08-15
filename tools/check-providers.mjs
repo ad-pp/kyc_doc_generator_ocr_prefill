@@ -37,11 +37,16 @@ function loadEnv() {
   return env;
 }
 
-// A 2x2 PNG. Enough to be a valid image every vision endpoint will accept,
-// small enough that the check costs almost nothing against a free quota.
+// A 96x96 PNG with three black bars. A 2x2 image was rejected by Qwen on Groq
+// with "invalid image data" — some vision endpoints require a plausible
+// minimum size — which read as a broken tier when the tier was fine. Still
+// tiny enough that a check costs almost nothing against a free quota.
 const TINY_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8//8/AzJgYkAD5AsAAP//" +
-    "DwAEWgIu1J4kAAAAAElFTkSuQmCC",
+  "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAA3UlEQVR4nO3YsRGAQAwEse+/aeiA" +
+    "DRzAYKkCz2bnc/HovH3A1wkUBAoCBYGCQEGgIFAQKAgUBAoCBYGCQEGgIFAQKAgUBAoChQ50/k6g" +
+    "IFAQKAgUBAoCBYGCQEGgIFCYBlpOoCBQECgIFAQKAgWBgkBBoCBQECgIFKx5744iUBAoCBQECgIF" +
+    "gYJAQaAgUJgGWk6gIFAQKAgUBAoCBYGCQEGgIFAQKAgUrHnvjiJQECgIFAQKAgWBgkBBoCBQmAZa" +
+    "TqAgUBAoCBQECgIFgYJAQaAgUBAoCBQECgIFgcINHne0lB853+wAAAAASUVORK5CYII=",
   "base64"
 );
 
