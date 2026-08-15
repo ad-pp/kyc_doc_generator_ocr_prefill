@@ -41,13 +41,32 @@ JSON back; it has no provider setting and no way to influence the choice.
 | | Chain | What it does |
 |---|---|---|
 | **Primary** | Gemini 2.5 Flash (multimodal) | Reads the deed image/PDF directly — OCR and extraction in a single call |
-| **Secondary** | OCR.space → Groq (Llama 3.3 70B) | A real OCR engine produces page text, then a different LLM extracts from it |
+| **Secondary** | OCR.space (Engine 3 → 2) → Groq (Llama 3.3 70B) | A real OCR engine produces page text, then a different LLM extracts from it |
 
 Both are free tiers. The secondary deliberately uses different vendors at both
 stages, so one provider's outage or exhausted quota cannot take down both
 attempts. If the primary fails, the response carries a warning saying a backup
 was used; if both fail, the agent is told to fill the form manually and the
 upload is not retried automatically.
+
+**OCR.space engine choice** (per the [API docs](https://ocr.space/ocrapi#ocrengine)):
+Engine 3 is the primary — highest accuracy, and it returns tables as Markdown,
+which matters because partner name/share tables are exactly what we extract.
+Its free quota is 2,500 conversions/month, held separately from the 25,000
+shared by Engines 1 and 2. Engine 2 is the retry: the documented all-rounder,
+strong on noisy photo backgrounds and rotated text, drawing on the larger pool.
+Exhausting the Engine 3 quota therefore degrades automatically rather than
+failing. `scale` and `detectOrientation` are on (the API defaults `scale` to
+false; the docs note a significant gain on low-resolution scans), and language
+is `auto`, which Engines 2/3 support — the Worker substitutes `eng` if a call
+ever lands on Engine 1, which has no auto mode.
+
+Free-plan limits that shaped the design: **1 MB per file**, **3 PDF pages**,
+25,000 requests/month, and 500 requests/day per IP. The 1 MB cap is why the
+browser compresses to ~900 KB rather than the 1.4 MB the primary would happily
+accept — otherwise the fallback would fail on exactly the scans that needed it.
+The 3-page PDF limit only constrains the fallback; the primary reads full
+multi-page PDFs, and a PDF failure surfaces that hint in the error.
 
 The one-call primary is not just simpler — a multimodal model reading the
 original scan generally beats OCR-then-LLM on phone-camera photos, where

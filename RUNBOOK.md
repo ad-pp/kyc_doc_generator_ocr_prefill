@@ -39,7 +39,7 @@ Create these first; all are free and none need a card.
 |---|---|---|---|
 | 1 | Cloudflare | Workers + KV | dash.cloudflare.com/sign-up |
 | 2 | Google AI Studio | `GEMINI_API_KEY` — primary chain | aistudio.google.com/apikey |
-| 3 | OCR.space | `OCRSPACE_API_KEY` — secondary OCR | ocr.space/ocrapi/freekey |
+| 3 | OCR.space | `OCRSPACE_API_KEY` — secondary OCR (free plan is enough) | ocr.space/ocrapi/freekey |
 | 4 | Groq | `GROQ_API_KEY` — secondary LLM | console.groq.com/keys |
 
 The old Gemini key was exposed in git history and has been revoked. Generate a
@@ -234,7 +234,8 @@ Agents can also export their own device log as CSV from Step 1.
 | Per agent | 40 extractions/day | Configurable in `wrangler.toml` |
 | Per IP | 120 extractions/day | Stops one connection burning the pool |
 | Upload | 8 MB | Photos are compressed on the phone first |
-| Gemini / OCR.space / Groq free tiers | Provider-set, and they change | Exhausting the primary triggers automatic failover to the secondary |
+| OCR.space free plan | 1 MB/file, 3 PDF pages, 25,000/month, 500/day per IP | Engine 3 has its own 2,500/month quota; exhausting it retries on Engine 2 |
+| Gemini / Groq free tiers | Provider-set, and they change | Exhausting the primary triggers automatic failover to the secondary |
 
 Raising a cap is a `wrangler.toml` edit plus `npx wrangler deploy`.
 

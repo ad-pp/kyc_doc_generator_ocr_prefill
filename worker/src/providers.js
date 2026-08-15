@@ -73,28 +73,94 @@ export async function extractWithGeminiVision(file, env) {
 // ---- SECONDARY CHAIN: dedicated OCR, then a different LLM ------------------
 // Deliberately a different vendor at both stages, so one provider's outage or
 // quota exhaustion cannot take down both attempts.
-export async function ocrWithOcrSpace(file, env) {
+// Tuned against https://ocr.space/ocrapi#ocrengine for a free-plan key.
+//
+// Engine 3 is the primary: it has the highest accuracy, recognises tables and
+// returns them as Markdown, which matters here because partner name/share
+// tables are exactly what we extract. Its free quota is 2,500 conversions a
+// month, separate from the 25,000 shared by Engines 1/2 — ample for a path
+// that only runs when the Gemini primary has already failed.
+//
+// Engine 2 is the fallback: the documented all-rounder, strong on noisy photo
+// backgrounds and rotated text, drawing on the larger 25,000 pool.
+//
+// Every knob is a wrangler var, so this can be retuned without a code change.
+const ENGINE_SUPPORTS_AUTO_LANGUAGE = ["2", "3"];
+
+function ocrSpaceForm(file, env, engine) {
   const form = new FormData();
   form.append("file", file, file.name || "upload");
-  form.append("language", "eng");
+  // Engines 2 and 3 auto-detect; Engine 1 has no "auto" and needs a real code.
+  const configured = env.OCRSPACE_LANGUAGE || "auto";
+  const language = configured === "auto" && !ENGINE_SUPPORTS_AUTO_LANGUAGE.includes(String(engine))
+    ? "eng"
+    : configured;
+  form.append("language", language);
   form.append("isOverlayRequired", "false");
+  // The API defaults scale to false; enabling it upscales internally and the
+  // docs call out a significant gain on low-resolution scans.
   form.append("scale", "true");
-  form.append("OCREngine", "2");
+  form.append("detectOrientation", "true"); // deed photographed sideways
+  // Engine 3 already emits Markdown tables, so forcing line-by-line output is
+  // only useful on the other engines or for heavily tabular deeds.
+  form.append("isTable", env.OCRSPACE_TABLE || "false");
+  form.append("OCREngine", String(engine));
+  return form;
+}
+
+async function callOcrSpace(file, env, engine) {
   const response = await withTimeout(
-    fetch("https://api.ocr.space/parse/image", { method: "POST", headers: { apikey: env.OCRSPACE_API_KEY }, body: form }),
+    fetch("https://api.ocr.space/parse/image", {
+      method: "POST",
+      headers: { apikey: env.OCRSPACE_API_KEY },
+      body: ocrSpaceForm(file, env, engine),
+    }),
     40000,
     "OCR.space"
   );
   if (!response.ok) throw new Error("OCR.space failed with status " + response.status);
   const payload = await response.json();
-  if (payload.IsErroredOnProcessing) {
-    const message = Array.isArray(payload.ErrorMessage) ? payload.ErrorMessage.join(" ") : payload.ErrorMessage;
-    throw new Error("OCR.space error: " + (message || "unknown"));
+
+  // OCRExitCode: 1 success, 2 partial success, 3 failed, 4 fatal.
+  const exitCode = Number(payload.OCRExitCode || 0);
+  if (payload.IsErroredOnProcessing || exitCode >= 3) {
+    const message = [payload.ErrorMessage, payload.ErrorDetails]
+      .flat()
+      .filter(Boolean)
+      .join(" ");
+    // The free plan reads only the first 3 pages of a PDF, which is the most
+    // likely cause of a PDF failing here and is not obvious from the raw error.
+    const hint = (file.type || "").includes("pdf") ? " (free plan reads at most 3 PDF pages)" : "";
+    throw new Error("OCR.space error: " + (message || "exit code " + exitCode) + hint);
   }
-  const pages = (payload.ParsedResults || []).map((result, index) => ({ page: index + 1, text: result.ParsedText || "" }));
+  const pages = (payload.ParsedResults || []).map((result, index) => ({
+    page: index + 1,
+    text: result.ParsedText || "",
+  }));
   const text = pages.map((page) => page.text).join("\n\n").trim();
   if (!text) throw new Error("OCR.space found no readable text.");
-  return { pages, text };
+  return { pages, text, partial: exitCode === 2 };
+}
+
+export async function ocrWithOcrSpace(file, env) {
+  // Free plans cap upload size well below the Worker's own limit, and an
+  // oversized file fails with a message the agent cannot act on.
+  const maxKb = Number(env.OCRSPACE_MAX_KB || 1024);
+  if (file.size > maxKb * 1024) {
+    throw new Error("Scan is " + Math.round(file.size / 1024) + " KB, above the OCR service limit of " + maxKb + " KB.");
+  }
+  const engine = (env.OCRSPACE_ENGINE || "3").trim();
+  // ?? not ||, so setting the var to "" genuinely disables the retry.
+  const fallback = (env.OCRSPACE_ENGINE_FALLBACK ?? "2").trim();
+  try {
+    return await callOcrSpace(file, env, engine);
+  } catch (error) {
+    // Engine availability differs by plan, and one engine can reject a file
+    // the other reads. Trying the alternate costs one call and often works.
+    if (!fallback || fallback === engine) throw error;
+    console.log("ocr engine " + engine + " failed (" + error.message + "), retrying with " + fallback);
+    return callOcrSpace(file, env, fallback);
+  }
 }
 
 export async function extractWithGroq(ocrResult, env) {

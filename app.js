@@ -21,8 +21,13 @@ const API_BASE_URL = "";
 // Photos from a phone camera are 4-8 MB. Downscaling before upload keeps the
 // request small on a 3G connection and well inside the Worker's size cap,
 // while staying legible enough for OCR.
-const UPLOAD_MAX_EDGE_PX = 2000;
-const UPLOAD_JPEG_QUALITY = 0.82;
+// 1600px still resolves 10pt deed text comfortably once the page fills the
+// frame, and it keeps the encode fast on a low-end phone.
+const UPLOAD_MAX_EDGE_PX = 1600;
+// Below the fallback OCR service's ~1 MB free-plan cap, with headroom for
+// multipart overhead.
+const UPLOAD_TARGET_BYTES = 900 * 1024;
+const UPLOAD_JPEG_QUALITY_STEPS = [0.8, 0.68, 0.56, 0.45];
 const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
 
 const LS_MERCHANT = "docgen_merchant_v1";   // clears per onboarding
@@ -540,18 +545,32 @@ function resetExtractionState(keepFileName = false) {
 }
 // Shrink camera photos in the browser so a low-end phone on a weak connection
 // is not uploading an 8 MB image. PDFs are passed through untouched.
+//
+// The target is set by the STRICTEST provider in the chain, not the loosest:
+// the primary accepts multi-megabyte images, but the fallback OCR service caps
+// free-plan uploads around 1 MB. Sending 1.4 MB would work until the day the
+// primary is down, and then fail on exactly the scans that needed the backup.
+// So step the quality down until it fits, and only then give up on shrinking.
 async function prepareUpload(file) {
   if (!/^image\//.test(file.type || "")) return { file, note: "" };
   try {
     const bitmap = await createImageBitmap(file);
+    if (file.size <= UPLOAD_TARGET_BYTES && Math.max(bitmap.width, bitmap.height) <= UPLOAD_MAX_EDGE_PX) {
+      bitmap.close();
+      return { file, note: "" };
+    }
     const scale = Math.min(1, UPLOAD_MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
-    if (scale >= 1 && file.size <= 1.5 * 1024 * 1024) return { file, note: "" };
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", UPLOAD_JPEG_QUALITY));
+
+    let blob = null;
+    for (const quality of UPLOAD_JPEG_QUALITY_STEPS) {
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (blob && blob.size <= UPLOAD_TARGET_BYTES) break;
+    }
     if (!blob || blob.size >= file.size) return { file, note: "" };
     const name = (file.name || "upload").replace(/\.[^.]+$/, "") + ".jpg";
     return {
