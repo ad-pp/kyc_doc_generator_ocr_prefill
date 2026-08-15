@@ -103,6 +103,55 @@ async function downloadBlob(blob, filename) {
 }
 `;
 
+// --demo makes the deed-upload flow visible without a deployed Worker, so the
+// prefill UX can be reviewed before any key exists. It returns fixed sample
+// data instead of calling a provider, and says so on screen.
+if (args.includes("--demo")) {
+  bundle = bundle.replace('const API_BASE_URL = "";', 'const API_BASE_URL = "demo";');
+
+  const apiCall = /async function extractViaApi\(file, agentMobile\) \{[\s\S]*?\n\}/;
+  if (!apiCall.test(bundle)) throw new Error("extractViaApi not found — cannot build the demo");
+  bundle = bundle.replace(apiCall, () => `
+async function extractViaApi(file, agentMobile) {
+  // DEMO BUILD — no provider is called and the uploaded file is not read.
+  // Fixed sample data, so the review/apply flow can be exercised offline.
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+  const field = (value, confidence, page, snippet) => ({ value, confidence, source: [{ page, snippet }], warning: "" });
+  return normalizeExtractionShape({
+    documentType: "partnership_deed",
+    sourceQuality: { ocrReadable: true, warnings: ["Demo build: this is fixed sample data, not a reading of your file."] },
+    entity: {
+      firmName: field("M/s Sharma & Associates", 0.94, 1, "THIS DEED OF PARTNERSHIP is made by M/s Sharma & Associates"),
+      regAddress: field("12 M.G. Road, Pune, Maharashtra 411001", 0.89, 1, "having its registered office at 12 M.G. Road, Pune"),
+      principalAddress: field("12 M.G. Road, Pune, Maharashtra 411001", 0.72, 1, "principal place of business"),
+      partnershipRegType: field("registered", 0.81, 1, "duly registered under the Indian Partnership Act, 1932"),
+      deedDate: field("2024-03-14", 0.9, 1, "made on this 14th day of March, 2024"),
+    },
+    partners: [
+      {
+        name: field("Ravi Sharma", 0.93, 1, "Shri Ravi Sharma, aged 47 years"),
+        designation: field("Partner", 0.95, 1, "Partner of the First Part"),
+        address: field("12 M.G. Road, Pune 411001", 0.84, 1, "residing at 12 M.G. Road"),
+        share: field("60", 0.88, 2, "shall share profits in the ratio 60:40"),
+      },
+      {
+        name: field("Anita Sharma", 0.92, 1, "Smt. Anita Sharma, aged 44 years"),
+        designation: field("Partner", 0.95, 1, "Partner of the Second Part"),
+        address: field("12 M.G. Road, Pune 411001", 0.84, 1, "residing at 12 M.G. Road"),
+        share: field("40", 0.88, 2, "shall share profits in the ratio 60:40"),
+      },
+    ],
+    unmappedNotes: ["Demo build — connect the Worker to read a real deed."],
+  });
+}`.trim());
+
+  // Relabel the card so nobody mistakes sample output for a real reading.
+  bundle = bundle.replace(
+    "Upload a partnership deed/agreement to prefill explicit facts only. Every value still needs manual review before document generation.",
+    "<strong>Demo mode.</strong> Upload any PDF or photo to walk through the flow — the file is not read or sent anywhere, and fixed sample data is returned so you can review the prefill experience. The deployed app reads the real document."
+  );
+}
+
 if (args.includes("--fragment")) {
   const original = /function downloadBlob\(blob, filename\) \{[\s\S]*?\n\}/;
   if (!original.test(bundle)) throw new Error("downloadBlob not found — cannot patch the preview build");

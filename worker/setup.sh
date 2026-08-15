@@ -12,6 +12,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 
+# Guard the most likely first-run mistake: cloning the default branch, which
+# does not contain this directory, and getting an opaque "No such file" error.
+[ -f "$ROOT/tools/apply-config.mjs" ] || {
+  printf "\n\033[31mX This does not look like the right branch.\033[0m\n" >&2
+  printf "  worker/ and tools/ live on claude/ocr-llm-key-security-aaa59u until PR #1 merges.\n" >&2
+  printf "  Run:  git checkout claude/ocr-llm-key-security-aaa59u\n\n" >&2
+  exit 1
+}
+
 say()  { printf "\n\033[1m==> %s\033[0m\n" "$1"; }
 warn() { printf "\033[33m    %s\033[0m\n" "$1"; }
 die()  { printf "\n\033[31mX %s\033[0m\n" "$1" >&2; exit 1; }

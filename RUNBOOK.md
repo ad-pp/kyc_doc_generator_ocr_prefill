@@ -59,10 +59,23 @@ The old Gemini key was exposed in git history and has been revoked. Generate a
 From the repo root, with Node 18+ installed:
 
 ```bash
-git clone https://github.com/ad-pp/kyc_doc_generator_ocr_prefill.git
+git clone -b claude/ocr-llm-key-security-aaa59u \
+  https://github.com/ad-pp/kyc_doc_generator_ocr_prefill.git
 cd kyc_doc_generator_ocr_prefill
 bash worker/setup.sh
 ```
+
+> **The `-b` matters.** This work lives on the branch
+> `claude/ocr-llm-key-security-aaa59u` until PR #1 is merged. A plain
+> `git clone` gives you `main`, which has no `worker/` directory yet, and
+> `bash worker/setup.sh` fails with *No such file or directory*. Already
+> cloned without it? Just switch:
+>
+> ```bash
+> git checkout claude/ocr-llm-key-security-aaa59u
+> ```
+>
+> Once PR #1 is merged, drop the `-b` and use `main`.
 
 You will be asked for exactly three things — the Gemini, OCR.space and Groq
 keys — plus one browser approval for the Cloudflare login. The script does the
@@ -83,7 +96,8 @@ agents never do any of it.
 ### Step 1 — Get the code
 
 ```bash
-git clone https://github.com/ad-pp/kyc_doc_generator_ocr_prefill.git
+git clone -b claude/ocr-llm-key-security-aaa59u \
+  https://github.com/ad-pp/kyc_doc_generator_ocr_prefill.git
 cd kyc_doc_generator_ocr_prefill/worker
 ```
 
@@ -174,10 +188,11 @@ the old file cached pick up the change.
 ```bash
 git add app.js index.html worker/wrangler.toml
 git commit -m "Point app at deployed API Worker"
-git push origin main
+git push origin claude/ocr-llm-key-security-aaa59u
 ```
 
-The Pages workflow redeploys in about a minute.
+Then merge PR #1. GitHub Pages deploys from `main`, so the app goes live about
+a minute after the merge, not after this push.
 
 ### Step 10 — Verify on an actual phone
 
