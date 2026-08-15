@@ -152,7 +152,7 @@ export async function extractWithOpenRouter(file, env) {
 // produce — and a clear, immediate failure for PDFs rather than a confusing
 // provider error.
 export async function extractWithGroq(file, env) {
-  const model = env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+  const model = env.GROQ_MODEL || "qwen/qwen3.6-27b";
   if ((file.type || "").includes("pdf")) {
     throw new Error("Groq accepts images only, and this upload is a PDF");
   }

@@ -104,13 +104,18 @@ const MODEL_LISTS = {
   groq: {
     url: "https://api.groq.com/openai/v1/models",
     headers: (env) => ({ Authorization: "Bearer " + env.GROQ_API_KEY }),
-    // Groq's list does not flag modality, so vision has to be matched by name.
-    // Anything else is text-only and cannot serve this tier at all.
+    // Groq's list does not flag modality. Matching vision by name hid
+    // qwen/qwen3.6-27b, which is multimodal but says so nowhere in its id — so
+    // filtering on names drops real candidates. List everything except the
+    // obviously non-visual, and rank likely vision models to the top instead.
     parse: (data) =>
       (data.data || [])
-        .filter((m) => /vision|scout|maverick|llava|[-/]vl\b|omni/i.test(m.id))
+        .filter((m) => !/whisper|tts|guard|embed|rerank/i.test(m.id))
         .map((m) => ({ id: m.id, note: m.owned_by || "" })),
-    rank: (id) => (/guard|safety|prompt/i.test(id) ? 400 : 0) - (id.match(/(\d+)b/i) ? 1 : 0),
+    rank: (id) =>
+      (/vision|scout|maverick|llava|[-/]vl\b|omni|qwen|gemma|llama-4/i.test(id) ? -50 : 0) +
+      (/compound|allam|prompt/i.test(id) ? 200 : 0) -
+      Math.min(Number((id.match(/(\d+)b/i) || [0, 0])[1]), 90) / 30,
   },
 };
 
@@ -161,7 +166,8 @@ async function main() {
         failed.suggestions = await suggestModels(tier.name, env);
         if (!failed.suggestions.length) {
           console.log(`  ${" ".repeat(11)}        no usable model found for this tier on this key.`);
-          console.log(`  ${" ".repeat(11)}        Groq needs a vision model; if it has none, drop the tier:`);
+          console.log(`  ${" ".repeat(11)}        This tier needs a model that accepts images; if there is`);
+          console.log(`  ${" ".repeat(11)}        none, drop the tier:`);
           console.log(`  ${" ".repeat(11)}          npx wrangler secret delete ${tier.keyVar}`);
         }
         if (failed.suggestions.length) {

@@ -28,7 +28,7 @@ OPENROUTER_PDF_ENGINE = "pdf-text"
 # Must be a vision-capable model: https://console.groq.com/docs/models
 # If the account has no vision model, leave GROQ_API_KEY unset and the tier is
 # skipped; `node tools/check-providers.mjs` reports which models are available.
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "qwen/qwen3.6-27b"
 
 DAILY_LIMIT_PER_AGENT = "40"
 DAILY_LIMIT_PER_IP = "120"
