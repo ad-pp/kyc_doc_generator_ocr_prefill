@@ -11,30 +11,35 @@ This branch adds a **Partnership Firm-only** upload flow that can:
 
 1. Upload a partnership deed/agreement
 2. Run OCR through a configurable provider
-3. Send OCR text to Gemini for structured extraction
+3. Send OCR text to an LLM for structured extraction
 4. Show **suggested** prefills that the agent must review before generation
 
-The current prototype keeps the integration provider-swappable:
+### API keys are never stored in this repository
 
-- `OCR_PROXY_URL` in `app.js` — OCR provider endpoint
-- `GEMINI_API_KEY` in `app.js` — Gemini key for extraction
-- `GEMINI_MODEL` in `app.js` — Gemini model name
+This is a static site: **anything committed to `app.js` is publicly readable**,
+so no provider key lives in the code. Each agent supplies their own free-tier
+key at runtime under **"AI provider keys"** on the deed-upload card. Keys are
+kept in `sessionStorage` only — never in `localStorage`, never in the repo, and
+the browser discards them when the tab closes. A "Clear keys now" button wipes
+them on demand.
 
-### Where to put the Gemini key
+### Providers
 
-Open `app.js` and update:
+| Role | Primary | Secondary |
+|------|---------|-----------|
+| OCR  | **OCR.space** free tier — browser-callable (CORS), 25k calls/month, 1 MB per file, PDFs up to 3 pages | **Custom proxy** endpoint (`{ text, pages[], warnings[] }`), or a `.txt` upload which needs no OCR |
+| LLM  | **Google Gemini** (`gemini-2.5-flash`) free tier | **OpenRouter** free models (e.g. `meta-llama/llama-3.3-70b-instruct:free`) |
 
-```js
-const GEMINI_API_KEY = "";
-```
+Both LLM providers are called directly from the browser with the agent's own
+key and return JSON in the same schema, so switching provider is a dropdown —
+no code change. Gemini's key is sent as an `x-goog-api-key` header rather than
+a query parameter, keeping it out of URL logs and browser history.
 
-For the current prototype, the OCR hook expects a JSON endpoint in:
+Scanned PDFs and images cannot be read without OCR. With OCR set to "None" the
+app accepts `.txt` only and says so, instead of feeding binary bytes to the
+model.
 
-```js
-const OCR_PROXY_URL = "";
-```
-
-Expected OCR response shape:
+Expected shape from a custom OCR proxy:
 
 ```json
 {
@@ -117,12 +122,15 @@ files:
 
 No build step, no `npm install`, no server process to keep alive.
 
-## Google Sheet logging (2 data points only)
+## Usage logging
 
-Per your requirement, the Sheet is used purely as an append-only log of:
+The Sheet was used purely as an append-only log of:
 
 1. Agent's mobile number
 2. Merchant Mobile Number (new merchant) or Merchant ID (existing merchant)
+
+<details>
+<summary>How the (now suspended) Apps Script logging worked</summary>
 
 **Note on Workspace-restricted deployments:** most corporate Google
 Workspace accounts don't offer a fully public "Anyone" access level for
@@ -137,24 +145,24 @@ hidden iframe silently shows a sign-in page instead — the log entry is
 simply skipped that time. Either way, document generation itself is never
 blocked or delayed by this.
 
-Setup:
+</details>
 
-1. Create a Google Sheet inside your corporate Google Workspace account.
-2. Open **Extensions → Apps Script** and paste in `google-apps-script.gs`.
-3. Deploy as a **Web app**:
-   - Execute as: **Me**
-   - Who has access: **Anyone within your organization** (this is fine —
-     see the note above; you do not need the fully-public "Anyone" option).
-4. Copy the `/exec` URL it gives you.
-5. Open `app.js` and paste the URL into the `SHEETS_URL` constant near the
-   top of the file:
+**Google Sheets logging is currently suspended.** `SHEETS_URL` in `app.js` is
+blank, so nothing is posted to Apps Script. `google-apps-script.gs` is retained
+only so logging can be switched back on later — redeploy the web app and paste
+the `/exec` URL back into `SHEETS_URL`; no other code change is needed.
 
-   ```js
-   const SHEETS_URL = "https://script.google.com/macros/s/XXXXXXXXXXXX/exec";
-   ```
+### Local usage log (current behaviour)
 
-If you leave `SHEETS_URL` blank, the app works exactly the same — it just
-skips logging.
+Every generation appends one row — timestamp, agent mobile, merchant mobile/ID,
+new/existing — to `localStorage` on that device. Step 1 shows the row count and
+offers **Export usage log (CSV)** and **Clear log**. The log survives the
+per-merchant reset and is capped at the most recent 1000 rows.
+
+This is per-device, so it does not aggregate across agents. For a POC that is
+usually enough. If central counting becomes necessary without standing up a
+backend, the cheapest options are a **Cloudflare Worker** (100k requests/day
+free) writing to Workers KV, or re-enabling the Apps Script endpoint above.
 
 ## Document coverage
 
@@ -213,14 +221,24 @@ Other alternatives:
 - **Vercel Hobby** — not recommended because its free tier is intended for
   personal/non-commercial use.
 
-Regardless of host, browser-visible URLs such as `SHEETS_URL` are not
-secrets. The domain-restricted Apps Script and corporate Google session are
-the current access controls for logging.
+Regardless of host, nothing shipped to the browser is a secret — not URLs and
+not API keys. That is why provider keys are entered at runtime and held in
+`sessionStorage` rather than committed (see "API keys are never stored in this
+repository" above).
+
+If you need to cap who can use the app and how much, a static host alone cannot
+do it. On the free tier the practical options are **Cloudflare Pages +
+Cloudflare Access** (SSO/one-time-PIN gate in front of the whole site, free for
+up to 50 users) or, for counting rather than gating, a **Cloudflare Worker**
+(100k requests/day free) that both proxies the AI calls and meters per-user
+usage. Both keep the "no server to run" property.
 
 ## Data protection
 
-Merchant data is stored in browser `localStorage` so interrupted sessions
-can resume. This storage is not encrypted. Use managed devices, clear each
+Merchant data, and the local usage log, are stored in browser `localStorage`
+so interrupted sessions can resume. This storage is not encrypted. (API keys
+are the exception — they go to `sessionStorage` and are dropped when the tab
+closes.) Use managed devices, clear each
 merchant after document generation, and avoid sharing devices between
 agents. For stricter policy, add automatic expiry or disable merchant
 persistence before production rollout.

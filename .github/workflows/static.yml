@@ -2,9 +2,10 @@
 name: Deploy static content to Pages
 
 on:
-  # Runs on pushes targeting the default branch and the OCR-prefill branch
+  # Runs on pushes targeting the default branch only. Feature branches are
+  # deployed manually via workflow_dispatch when a preview is needed.
   push:
-    branches: ["main", "arindam-das-phpe-llm-ocr-plan"]
+    branches: ["main"]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:

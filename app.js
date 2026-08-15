@@ -6,15 +6,24 @@
 import * as docxLib from "./vendor/docx-8.2.2.js";
 
 // ---- CONFIG ----
-// Paste your Google Apps Script Web App URL here (see google-apps-script.gs).
-// Logs ONLY: timestamp, agent mobile number, merchant display name / ID.
-const SHEETS_URL = "https://script.google.com/a/macros/phonepe.com/s/AKfycbyOU_MKNPCXOPT7CYAAf2tmqZsQNSVTbP92QY-gw991gyJrEQdA7Tu_c_FlCsyxIn9_/exec"; // e.g. "https://script.google.com/macros/s/XXXXXXXX/exec"
-const OCR_PROXY_URL = "";
-const GEMINI_API_KEY = "";
-const GEMINI_MODEL = "gemini-2.5-flash";
+// Google Apps Script logging is SUSPENDED (see "USAGE LOG" below). Usage is
+// now recorded locally in the browser and can be exported as CSV. To restore
+// Sheets logging later, paste the Apps Script /exec URL back into SHEETS_URL.
+const SHEETS_URL = "";
+
+// NO API KEY IS EVER STORED IN THIS FILE OR IN THE REPOSITORY.
+// Anything shipped to the browser is public, so provider keys are supplied by
+// the agent at runtime (Step 4 -> "AI provider keys") and kept in
+// sessionStorage only, which the browser discards when the tab is closed.
+const DEFAULT_MODELS = {
+  gemini: "gemini-2.5-flash",
+  openrouter: "meta-llama/llama-3.3-70b-instruct:free",
+};
 
 const LS_MERCHANT = "docgen_merchant_v1";   // clears per onboarding
 const LS_AGENT    = "docgen_agent_v1";      // permanent - agent mobile only
+const LS_USAGE    = "docgen_usage_log_v1";  // local usage log (CSV export)
+const SS_AI_CFG   = "docgen_ai_cfg_v1";     // sessionStorage ONLY - provider keys
 
 const PAN_REGEX = /^[A-Z]{5}\d{4}[A-Z]$/;
 const AADHAAR_LAST4 = /^\d{4}$/;
@@ -99,6 +108,7 @@ const state = {
   extractionRawText: "",
   extractionResult: null,
   extractionApplied: false,
+  showAiSettings: false,
 };
 
 let formData = {};
@@ -246,26 +256,84 @@ function flashSave() {
   setTimeout(() => { if (el) el.textContent = "Auto-save ON"; }, 1400);
 }
 
-// ---- SHEET LOGGING (log-only, 2 datapoints) ----
-// Submitted as a real hidden-form POST (not fetch) so that, on a device/browser
-// already signed into the corporate @phonepe.com Google account, the request
-// carries a valid Google session and succeeds even though the Workspace admin
-// restricts Apps Script deployments to "Anyone within the organization" rather
-// than fully public "Anyone". If the agent isn't signed in, the hidden iframe
-// silently shows a Google sign-in page instead of logging \u2014 harmless, and it
-// never blocks or interrupts document generation.
-function logToSheet() {
-  if (!SHEETS_URL || state.loggedThisSession) return;
+// ---- AI RUNTIME CONFIG (sessionStorage only, never committed) ----
+// Provider keys live in sessionStorage for the life of the browser tab. They
+// are never written to localStorage, never sent anywhere except the provider
+// the agent selected, and never appear in this repository.
+const AI_CFG_DEFAULTS = {
+  ocrProvider: "ocrspace",   // ocrspace | proxy | none
+  ocrKey: "",
+  ocrProxyUrl: "",
+  llmProvider: "gemini",     // gemini | openrouter
+  llmKey: "",
+  llmModel: "",
+};
+function loadAiConfig() {
   try {
-    const payload = {
-      timestamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
-      agentMobile: state.agentMobile,
-      merchant: state.merchantStatus === "new" ? state.merchantMobile : state.merchantId,
-      merchantStatus: state.merchantStatus,
-    };
-    submitViaHiddenForm(SHEETS_URL, payload);
-    state.loggedThisSession = true;
-  } catch (e) { /* silent */ }
+    const raw = sessionStorage.getItem(SS_AI_CFG);
+    return raw ? { ...AI_CFG_DEFAULTS, ...JSON.parse(raw) } : { ...AI_CFG_DEFAULTS };
+  } catch (e) { return { ...AI_CFG_DEFAULTS }; }
+}
+function saveAiConfig(patch) {
+  const next = { ...loadAiConfig(), ...patch };
+  try { sessionStorage.setItem(SS_AI_CFG, JSON.stringify(next)); } catch (e) { /* ignore */ }
+  return next;
+}
+function clearAiConfig() {
+  try { sessionStorage.removeItem(SS_AI_CFG); } catch (e) { /* ignore */ }
+}
+function aiModelFor(cfg) {
+  return (cfg.llmModel || "").trim() || DEFAULT_MODELS[cfg.llmProvider] || DEFAULT_MODELS.gemini;
+}
+
+// ---- USAGE LOG (local; Google Apps Script logging suspended) ----
+// One row per merchant per session: timestamp, agent mobile, merchant, status.
+// Held in localStorage and exportable as CSV. If SHEETS_URL is ever restored,
+// the same event is additionally posted to Apps Script via the hidden form.
+const USAGE_LOG_LIMIT = 1000;
+function readUsageLog() {
+  try {
+    const raw = localStorage.getItem(LS_USAGE);
+    const rows = raw ? JSON.parse(raw) : [];
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) { return []; }
+}
+function logUsage() {
+  if (state.loggedThisSession) return;
+  const entry = {
+    timestamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+    agentMobile: state.agentMobile,
+    merchant: state.merchantStatus === "new" ? state.merchantMobile : state.merchantId,
+    merchantStatus: state.merchantStatus,
+  };
+  try {
+    const rows = readUsageLog();
+    rows.push(entry);
+    localStorage.setItem(LS_USAGE, JSON.stringify(rows.slice(-USAGE_LOG_LIMIT)));
+  } catch (e) { /* storage full or blocked - never block generation */ }
+  // Suspended by default; only runs if SHEETS_URL is deliberately restored.
+  if (SHEETS_URL) {
+    try { submitViaHiddenForm(SHEETS_URL, entry); } catch (e) { /* silent */ }
+  }
+  state.loggedThisSession = true;
+}
+function csvCell(value) {
+  return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
+}
+function downloadUsageLog() {
+  const rows = readUsageLog();
+  if (!rows.length) { showToast("No usage logged on this device yet", "er"); return; }
+  const header = ["Timestamp", "Agent Mobile Number", "Merchant (Mobile / ID)", "Merchant Status"];
+  const csv = [header.map(csvCell).join(",")]
+    .concat(rows.map((row) => [row.timestamp, row.agentMobile, row.merchant, row.merchantStatus].map(csvCell).join(",")))
+    .join("\r\n");
+  downloadBlob(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }), "docgen_usage_log.csv");
+  showToast("Usage log exported", "ok");
+}
+function clearUsageLog() {
+  try { localStorage.removeItem(LS_USAGE); } catch (e) { /* ignore */ }
+  showToast("Usage log cleared", "ok");
+  rerender();
 }
 
 function submitViaHiddenForm(url, data) {
@@ -484,12 +552,42 @@ async function readFileAsBase64(file) {
   }
   return btoa(binary);
 }
-async function extractTextWithProvider(file) {
-  if (!OCR_PROXY_URL.trim()) {
-    const text = await file.text();
-    return { pages: [{ page: 1, text }], text, warnings: ["OCR proxy URL is not configured, so plain file text was used where available."] };
+function isPlainTextFile(file) {
+  return (file.type || "").startsWith("text/") || /\.txt$/i.test(file.name || "");
+}
+async function readPlainText(file, warnings = []) {
+  const text = await file.text();
+  return { pages: [{ page: 1, text }], text, warnings };
+}
+// OCR.space free tier: browser-callable (CORS enabled), no backend required.
+// Free-plan limits: ~1 MB per file, PDFs up to 3 pages, 25k requests/month.
+async function extractTextWithOcrSpace(file, apiKey) {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("language", "eng");
+  form.append("isOverlayRequired", "false");
+  form.append("scale", "true");
+  form.append("OCREngine", "2");
+  const response = await fetch("https://api.ocr.space/parse/image", {
+    method: "POST",
+    headers: { apikey: apiKey },
+    body: form,
+  });
+  if (!response.ok) throw new Error("OCR.space request failed with status " + response.status);
+  const payload = await response.json();
+  if (payload.IsErroredOnProcessing) {
+    const message = Array.isArray(payload.ErrorMessage) ? payload.ErrorMessage.join(" ") : payload.ErrorMessage;
+    throw new Error("OCR.space error: " + (message || "unknown error"));
   }
-  const response = await fetch(OCR_PROXY_URL, {
+  const results = Array.isArray(payload.ParsedResults) ? payload.ParsedResults : [];
+  const pages = results.map((result, index) => ({ page: index + 1, text: result.ParsedText || "" }));
+  const text = pages.map((page) => page.text).join("\n\n").trim();
+  if (!text) throw new Error("OCR returned no readable text. Try a clearer scan.");
+  return { pages, text, warnings: [] };
+}
+// Generic proxy hook, kept for anyone who later fronts a provider themselves.
+async function extractTextWithProxy(file, proxyUrl) {
+  const response = await fetch(proxyUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -504,7 +602,23 @@ async function extractTextWithProvider(file) {
   const text = payload.text || pages.map((page) => page.text || "").join("\n\n");
   return { pages, text, warnings: Array.isArray(payload.warnings) ? payload.warnings : [] };
 }
-function buildGeminiPrompt(ocrResult) {
+async function extractTextWithProvider(file, cfg) {
+  // A .txt file needs no OCR at all, whatever the provider setting is.
+  if (isPlainTextFile(file)) return readPlainText(file);
+
+  if (cfg.ocrProvider === "proxy") {
+    if (!cfg.ocrProxyUrl.trim()) throw new Error("OCR proxy URL is not set. Add it under \"AI provider keys\".");
+    return extractTextWithProxy(file, cfg.ocrProxyUrl.trim());
+  }
+  if (cfg.ocrProvider === "ocrspace") {
+    if (!cfg.ocrKey.trim()) throw new Error("OCR.space API key is not set. Add it under \"AI provider keys\".");
+    return extractTextWithOcrSpace(file, cfg.ocrKey.trim());
+  }
+  // "none": scanned PDFs and images cannot be read without OCR. Reading their
+  // bytes as text would feed binary garbage to the model, so refuse instead.
+  throw new Error("OCR is turned off, so only .txt files can be read. Pick an OCR provider under \"AI provider keys\".");
+}
+function buildExtractionPrompt(ocrResult) {
   return [
     "You extract structured data from Indian partnership deeds or partnership agreements.",
     "Return JSON only. Do not wrap in markdown.",
@@ -540,22 +654,56 @@ function buildGeminiPrompt(ocrResult) {
     ocrResult.pages.map((page, index) => "Page " + (page.page || index + 1) + ":\n" + (page.text || "")).join("\n\n"),
   ].join("\n");
 }
-async function extractStructuredDataWithGemini(ocrResult) {
-  if (!GEMINI_API_KEY.trim()) throw new Error("Gemini API key is not configured.");
-  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(GEMINI_MODEL) + ":generateContent?key=" + encodeURIComponent(GEMINI_API_KEY.trim());
+// Models sometimes wrap JSON in a markdown fence despite being told not to.
+function parseModelJson(text, providerLabel) {
+  const cleaned = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error(providerLabel + " returned a response that was not valid JSON.");
+  }
+}
+async function extractWithGemini(ocrResult, cfg) {
+  // The key goes in a header, not the query string, so it stays out of any
+  // URL logging or browser history.
+  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(aiModelFor(cfg)) + ":generateContent";
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.llmKey.trim() },
     body: JSON.stringify({
-      generationConfig: { responseMimeType: "application/json" },
-      contents: [{ role: "user", parts: [{ text: buildGeminiPrompt(ocrResult) }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0 },
+      contents: [{ role: "user", parts: [{ text: buildExtractionPrompt(ocrResult) }] }],
     }),
   });
   if (!response.ok) throw new Error("Gemini extraction failed with status " + response.status);
   const payload = await response.json();
   const text = payload && payload.candidates && payload.candidates[0] && payload.candidates[0].content && payload.candidates[0].content.parts && payload.candidates[0].content.parts[0] && payload.candidates[0].content.parts[0].text;
   if (!text) throw new Error("Gemini returned an empty extraction response.");
-  return normalizeExtractionShape(JSON.parse(text));
+  return parseModelJson(text, "Gemini");
+}
+async function extractWithOpenRouter(ocrResult, cfg) {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.llmKey.trim() },
+    body: JSON.stringify({
+      model: aiModelFor(cfg),
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: buildExtractionPrompt(ocrResult) }],
+    }),
+  });
+  if (!response.ok) throw new Error("OpenRouter extraction failed with status " + response.status);
+  const payload = await response.json();
+  const text = payload && payload.choices && payload.choices[0] && payload.choices[0].message && payload.choices[0].message.content;
+  if (!text) throw new Error("OpenRouter returned an empty extraction response.");
+  return parseModelJson(text, "OpenRouter");
+}
+async function extractStructuredData(ocrResult, cfg) {
+  if (!cfg.llmKey.trim()) throw new Error("No LLM API key set. Add one under \"AI provider keys\".");
+  const raw = cfg.llmProvider === "openrouter"
+    ? await extractWithOpenRouter(ocrResult, cfg)
+    : await extractWithGemini(ocrResult, cfg);
+  return normalizeExtractionShape(raw);
 }
 function applyExtractionToState() {
   if (!state.extractionResult) return;
@@ -595,9 +743,10 @@ async function handleExtractionUpload(event) {
   state.extractionApplied = false;
   rerender();
   try {
-    const ocrResult = await extractTextWithProvider(file);
+    const cfg = loadAiConfig();
+    const ocrResult = await extractTextWithProvider(file, cfg);
     state.extractionRawText = ocrResult.text || "";
-    const extractionResult = await extractStructuredDataWithGemini(ocrResult);
+    const extractionResult = await extractStructuredData(ocrResult, cfg);
     state.extractionResult = extractionResult;
     state.extractionWarnings = [...(ocrResult.warnings || []), ...(extractionResult.sourceQuality.warnings || [])];
     state.extractionStatus = "done";
@@ -629,13 +778,47 @@ function renderPartnerSuggestionCard(partner, index) {
   if (!pieces) return "";
   return '<div class="prefill-card"><h4>Partner ' + (index + 1) + '</h4><div class="prefill-grid">' + pieces + '</div></div>';
 }
+// Keys are typed here at runtime and held only for this browser tab. Nothing
+// is written to the repository, and closing the tab discards them.
+function aiSettingsHTML() {
+  const cfg = loadAiConfig();
+  const ready = cfg.llmKey.trim() && (cfg.ocrProvider === "none" || (cfg.ocrProvider === "proxy" ? cfg.ocrProxyUrl.trim() : cfg.ocrKey.trim()));
+  const summary = '<div class="pill-row"><span class="pill ' + (ready ? "ok" : "muted") + '">' + (ready ? "Keys set for this tab" : "Keys not set") + '</span>' +
+    '<button type="button" class="reset-link" ' + on("click", () => { state.showAiSettings = !state.showAiSettings; rerender(); }) + '>' + (state.showAiSettings ? "Hide" : "AI provider keys") + '</button></div>';
+  if (!state.showAiSettings) return summary;
+  const opt = option;
+  return summary +
+    '<div class="upload-box" style="margin-top:10px">' +
+      '<div class="info-blue">Keys are stored in <strong>sessionStorage only</strong> \u2014 they are never saved to this repository or to disk, and the browser discards them when you close the tab. Use a personal free-tier key; do not paste a shared production key.</div>' +
+      '<div class="g2">' +
+        '<div class="f"><label>OCR provider</label><select ' + on("change", (e) => { saveAiConfig({ ocrProvider: e.target.value }); rerender(); }) + ">" +
+          opt("ocrspace", "OCR.space (free tier)", cfg.ocrProvider) +
+          opt("proxy", "Custom proxy endpoint", cfg.ocrProvider) +
+          opt("none", "None (.txt files only)", cfg.ocrProvider) +
+        "</select></div>" +
+        (cfg.ocrProvider === "ocrspace"
+          ? '<div class="f"><label>OCR.space API key</label><input type="password" data-fid="aiOcrKey" autocomplete="off" value="' + attr(cfg.ocrKey) + '" ' + on("input", (e) => saveAiConfig({ ocrKey: e.target.value })) + ' /><span class="hint">Free key from ocr.space \u2014 25k calls/month, 1 MB per file, PDFs up to 3 pages.</span></div>'
+          : cfg.ocrProvider === "proxy"
+            ? '<div class="f"><label>OCR proxy URL</label><input type="url" data-fid="aiOcrProxy" autocomplete="off" value="' + attr(cfg.ocrProxyUrl) + '" ' + on("input", (e) => saveAiConfig({ ocrProxyUrl: e.target.value })) + ' /><span class="hint">Must return <code>{ text, pages[], warnings[] }</code>.</span></div>'
+            : '<div class="f"><label>OCR</label><span class="hint">Turned off \u2014 only <code>.txt</code> uploads will be read.</span></div>') +
+        '<div class="f"><label>LLM provider</label><select ' + on("change", (e) => { saveAiConfig({ llmProvider: e.target.value, llmModel: "" }); rerender(); }) + ">" +
+          opt("gemini", "Google Gemini (free tier)", cfg.llmProvider) +
+          opt("openrouter", "OpenRouter (free models)", cfg.llmProvider) +
+        "</select></div>" +
+        '<div class="f"><label>LLM API key</label><input type="password" data-fid="aiLlmKey" autocomplete="off" value="' + attr(cfg.llmKey) + '" ' + on("input", (e) => saveAiConfig({ llmKey: e.target.value })) + ' /><span class="hint">' + (cfg.llmProvider === "gemini" ? "From Google AI Studio." : "From openrouter.ai \u2014 pick a <code>:free</code> model.") + '</span></div>' +
+        '<div class="f s2"><label>Model (optional)</label><input data-fid="aiLlmModel" autocomplete="off" placeholder="' + attr(DEFAULT_MODELS[cfg.llmProvider] || "") + '" value="' + attr(cfg.llmModel) + '" ' + on("input", (e) => saveAiConfig({ llmModel: e.target.value })) + ' /></div>' +
+      "</div>" +
+      '<div class="act" style="padding-top:8px"><button type="button" class="btn btn-s" ' + on("click", () => { clearAiConfig(); showToast("Keys cleared", "ok"); rerender(); }) + '>Clear keys now</button></div>' +
+    "</div>";
+}
 function partnershipUploadHTML() {
   if (!extractionEnabled()) return "";
   const result = state.extractionResult;
   return '<div class="card"><div class="chd"><h2>\ud83e\udde0 Partnership Deed Upload Prefill</h2><span class="badge">Prototype</span></div><div class="cbd">' +
     '<div class="info-blue">Upload a partnership deed/agreement to prefill explicit facts only. Every value still needs manual review before document generation.</div>' +
+    aiSettingsHTML() +
     '<div class="upload-box">' +
-      '<div class="f"><label>Upload Partnership Deed / Agreement</label><input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp" ' + on("change", handleExtractionUpload) + ' /><span class="hint">Configure <code>OCR_PROXY_URL</code> for OCR and <code>GEMINI_API_KEY</code> for extraction in <code>app.js</code>.</span></div>' +
+      '<div class="f"><label>Upload Partnership Deed / Agreement</label><input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp" ' + on("change", handleExtractionUpload) + ' /><span class="hint">Scanned PDFs and images need an OCR provider; <code>.txt</code> files are read directly.</span></div>' +
       (state.extractionFileName ? '<div class="prefill-meta">Selected file: <strong>' + esc(state.extractionFileName) + '</strong></div>' : '') +
       (state.extractionStatus === "running" ? '<div class="info-green" style="margin-top:10px"><span class="spin" style="border-top-color:#1f8f54;border-color:rgba(31,143,84,.25)"></span> Extracting deed text and mapping fields…</div>' : '') +
       (state.extractionStatus === "error" ? '<div class="error-box" style="margin-top:10px">' + esc(state.extractionError) + '</div>' : '') +
@@ -1261,7 +1444,7 @@ async function buildDocxArtifact(kind) {
 async function generateDocx(kind) {
   try {
     const artifact = await buildDocxArtifact(kind);
-    logToSheet();
+    logUsage();
     downloadBlob(artifact.blob, artifact.filename);
     showToast("Download started", "ok");
   } catch (e) { console.error(e); showToast("Error: " + e.message, "er"); }
@@ -1328,7 +1511,7 @@ function closePreview() {
 }
 async function generatePrint(kind) {
   if (await previewDocx(kind)) {
-    logToSheet();
+    logUsage();
     window.print();
   }
 }
@@ -1382,7 +1565,7 @@ async function downloadPdf(kind) {
     if (pdf.getNumberOfPages() > canvases.length) pdf.deletePage(1);
     await pdf.save(pdfName);
     exportRoot.remove();
-    logToSheet();
+    logUsage();
     showToast("PDF download started", "ok");
   } catch (error) {
     console.error(error);
@@ -1469,6 +1652,7 @@ function renderApp() {
 
   // ---- STEP 0: Agent + Merchant identification ----
   if (state.step === 0) {
+    const usageCount = readUsageLog().length;
     return '<div class="card"><div class="chd"><h2>\ud83d\udcf1 Agent & Merchant Details</h2><button class="reset-link" ' + on("click", () => resetSection("tracking")) + '>Reset section</button><span class="badge">Step 1 of 5</span></div><div class="cbd">' +
       '<div class="info-blue">Your mobile number is saved permanently on this device \u2014 you will not need to re-enter it next time. Merchant details reset for every new onboarding.</div>' +
       '<div class="g2">' +
@@ -1480,7 +1664,11 @@ function renderApp() {
         (state.merchantStatus === "new"
           ? '<div class="f s2"><label>Merchant Mobile Number *</label><input type="tel" inputmode="numeric" maxlength="10" class="' + (errs.merchantMobile ? "err" : "") + '" value="' + attr(state.merchantMobile) + '" ' + on("input", (e) => { state.merchantMobile = e.target.value.replace(/\D/g,"").slice(0,10); scheduleSave(); }) + ' />' + (errs.merchantMobile ? '<span class="err-msg">' + errs.merchantMobile + "</span>" : "") + "</div>"
           : '<div class="f s2"><label>Merchant ID *</label><input class="' + (errs.merchantId ? "err" : "") + '" value="' + attr(state.merchantId) + '" ' + on("input", (e) => { state.merchantId = e.target.value; scheduleSave(); }) + ' />' + (errs.merchantId ? '<span class="err-msg">' + errs.merchantId + "</span>" : "") + "</div>") +
-      "</div></div></div>" +
+      "</div>" +
+      '<div class="divider">Usage log</div>' +
+      '<div class="info-blue">Google Sheets logging is suspended. Each generation is recorded on this device only (' + usageCount + ' entr' + (usageCount === 1 ? "y" : "ies") + ') and can be exported as CSV.</div>' +
+      '<div class="act" style="padding-top:8px"><button type="button" class="btn btn-s" ' + on("click", downloadUsageLog) + '>Export usage log (CSV)</button><button type="button" class="btn btn-s" ' + on("click", clearUsageLog) + '>Clear log</button></div>' +
+      "</div></div>" +
       pageActions('', '<button class="btn btn-p" ' + on("click", () => { if (validateStep0()) { state.step = 1; rerender(); } }) + '>Next: Platform & Entity \u2192</button>');
   }
 
@@ -1641,13 +1829,13 @@ rerender();
 document.getElementById("previewClose").addEventListener("click", closePreview);
 document.getElementById("previewDownload").addEventListener("click", () => {
   if (!previewArtifact) return;
-  logToSheet();
+  logUsage();
   downloadBlob(previewArtifact.blob, previewArtifact.filename);
   showToast("Download started", "ok");
 });
 document.getElementById("previewPrint").addEventListener("click", () => {
   if (!previewArtifact) return;
-  logToSheet();
+  logUsage();
   window.print();
 });
 document.getElementById("previewPdf").addEventListener("click", () => downloadPdf());
