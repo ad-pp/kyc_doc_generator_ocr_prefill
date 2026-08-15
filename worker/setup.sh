@@ -29,7 +29,8 @@ command -v node >/dev/null || die "Node.js 18+ is required. Install it from node
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 18 ] || die "Node.js 18+ is required (found $(node -v))."
 
-WRANGLER="npx --yes wrangler@latest"
+# Overridable so the failure paths can be exercised with a stub.
+WRANGLER="${WRANGLER:-npx --yes wrangler@latest}"
 
 say "1/6  Signing in to Cloudflare"
 if $WRANGLER whoami >/dev/null 2>&1; then
@@ -44,12 +45,37 @@ cd "$ROOT/worker"
 if grep -q '^\[\[kv_namespaces\]\]' wrangler.toml; then
   echo "    Already configured — skipping."
 else
-  KV_OUT="$($WRANGLER kv namespace create USAGE 2>&1 || $WRANGLER kv:namespace create USAGE 2>&1)"
-  echo "$KV_OUT" | tail -n 5
-  # The id is a 32-char hex string in the snippet wrangler prints back.
-  KV_ID="$(printf '%s' "$KV_OUT" | grep -oE '[0-9a-f]{32}' | head -n 1 || true)"
-  [ -n "$KV_ID" ] || die "Could not read the namespace id from wrangler's output. Copy it into worker/wrangler.toml by hand, then re-run."
-  node "$ROOT/tools/apply-config.mjs" --kv-id "$KV_ID"
+  # Assigning from a failing command substitution under `set -e` exits the
+  # script before anything gets printed, hiding the very error we need. Run it
+  # inside an `if`, which suspends `set -e`, and always show the output.
+  KV_OUT=""
+  if ! KV_OUT="$($WRANGLER kv namespace create USAGE 2>&1)"; then
+    if ! KV_OUT="$($WRANGLER kv:namespace create USAGE 2>&1)"; then
+      echo "$KV_OUT"
+      warn "Could not create the KV namespace (full output above)."
+      warn "The Worker runs fine without it — you lose the per-day caps and the"
+      warn "central usage log, both of which can be added later."
+      printf "    Continue without KV? [y/N] "
+      # Prefer the terminal (stdin may be a pipe), but never hard-fail on it.
+      ANSWER="n"
+      if [ -r /dev/tty ]; then read -r ANSWER </dev/tty || ANSWER="n"; else read -r ANSWER || ANSWER="n"; fi
+      case "$ANSWER" in
+        [yY]*) KV_OUT="";;
+        *) die "Stopped. Paste the output above and we can work out the cause.";;
+      esac
+    fi
+  fi
+  if [ -n "$KV_OUT" ]; then
+    echo "$KV_OUT" | tail -n 5
+    # The id is a 32-char hex string in the snippet wrangler prints back.
+    KV_ID="$(printf '%s' "$KV_OUT" | grep -oE '[0-9a-f]{32}' | head -n 1 || true)"
+    if [ -n "$KV_ID" ]; then
+      node "$ROOT/tools/apply-config.mjs" --kv-id "$KV_ID"
+    else
+      warn "Namespace created but no id found in the output above."
+      warn "Paste the id into the kv_namespaces block in worker/wrangler.toml, then re-run."
+    fi
+  fi
 fi
 
 say "3/6  Storing the API keys"
@@ -61,11 +87,18 @@ for KEY in GEMINI_API_KEY OCRSPACE_API_KEY GROQ_API_KEY; do
     OCRSPACE_API_KEY) echo; echo "    $KEY  (ocr.space/ocrapi/freekey — fallback OCR)";;
     GROQ_API_KEY)     echo; echo "    $KEY  (console.groq.com/keys — fallback LLM)";;
   esac
-  $WRANGLER secret put "$KEY"
+  if ! $WRANGLER secret put "$KEY"; then
+    warn "Storing $KEY failed. Re-run this script, or set it later with:"
+    warn "  npx wrangler secret put $KEY"
+  fi
 done
 
 say "4/6  Deploying the Worker"
-DEPLOY_OUT="$($WRANGLER deploy 2>&1)"
+DEPLOY_OUT=""
+if ! DEPLOY_OUT="$($WRANGLER deploy 2>&1)"; then
+  echo "$DEPLOY_OUT"
+  die "Deploy failed (full output above)."
+fi
 echo "$DEPLOY_OUT" | tail -n 8
 API_URL="$(printf '%s' "$DEPLOY_OUT" | grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' | head -n 1 || true)"
 [ -n "$API_URL" ] || die "Deploy finished but no workers.dev URL was found. Copy it from the output above into API_BASE_URL in app.js."
@@ -98,10 +131,10 @@ Last step — publish the app (this is the only git command you need):
 
   git add app.js index.html worker/wrangler.toml
   git commit -m "Point app at deployed API Worker"
-  git push origin main
+  git push origin \$(git rev-parse --abbrev-ref HEAD)
 
-GitHub Pages redeploys in about a minute, then open the site on a phone
-and the deed upload card will be live.
+GitHub Pages deploys from main, so merge PR #1 after pushing. About a minute
+later, open the site on a phone and the deed upload card will be live.
 
 To change a key later:  npx wrangler secret put GEMINI_API_KEY && npx wrangler deploy
 ------------------------------------------------------------------
