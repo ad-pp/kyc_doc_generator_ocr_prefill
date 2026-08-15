@@ -39,7 +39,8 @@ Create these first; all are free and none need a card.
 |---|---|---|---|
 | 1 | Cloudflare | Workers + KV | dash.cloudflare.com/sign-up |
 | 2 | Google AI Studio | `GEMINI_API_KEY` — primary chain | aistudio.google.com/apikey |
-| 3 | OpenRouter | `OPENROUTER_API_KEY` — fallback chain | openrouter.ai/keys |
+| 3 | OpenRouter | `OPENROUTER_API_KEY` — secondary | openrouter.ai/keys |
+| 4 | Groq | `GROQ_API_KEY` — tertiary (images only) | console.groq.com/keys |
 
 The old Gemini key was exposed in git history and has been revoked. Generate a
 **new** one at step 2 — do not reuse it.
@@ -76,7 +77,7 @@ bash worker/setup.sh
 >
 > Once PR #1 is merged, drop the `-b` and use `main`.
 
-You will be asked for exactly two keys — Gemini and OpenRouter — plus one
+You will be asked for three keys — Gemini, OpenRouter and Groq — plus one
 browser approval for the Cloudflare login. The script does the
 rest: creates the KV namespace and writes its id into `wrangler.toml`, stores
 each key as an encrypted secret, deploys the Worker, checks both provider
@@ -128,6 +129,7 @@ it and extraction still works — you just lose caps and central logging.
 ```bash
 npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put OPENROUTER_API_KEY
+npx wrangler secret put GROQ_API_KEY
 ```
 
 Each prompts for the value and hides it as you paste. Secrets are encrypted at
@@ -165,10 +167,20 @@ curl https://docgen-api.<your-subdomain>.workers.dev/api/health
 Expect:
 
 ```json
-{"ok":true,"primary":true,"secondary":true}
+{"ok":true,"providers":[{"name":"gemini","configured":true}, ...]}
 ```
 
-`false` anywhere means that chain's key is missing — redo step 4 for it.
+`configured:false` means that tier's key is missing — redo step 4 for it.
+
+That only reports whether a key is *present*. To prove each one actually
+works, run the preflight from the repo root:
+
+```bash
+node tools/check-providers.mjs
+```
+
+It sends one small real request per tier and reports which succeed. Run it
+before deploying and after changing any key or model.
 
 ### Step 8 — Point the app at the Worker
 

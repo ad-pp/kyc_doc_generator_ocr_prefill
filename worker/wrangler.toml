@@ -24,6 +24,10 @@ OPENROUTER_MODEL = "google/gemma-3-27b-it:free"
 # Parser used for PDF inputs on OpenRouter. "pdf-text" suits digital PDFs;
 # switch to an OCR engine for scanned ones (see OpenRouter's file-parser docs).
 OPENROUTER_PDF_ENGINE = "pdf-text"
+# Last-resort tier. Groq's vision models take images, not PDFs, so this tier
+# covers photo uploads only — which is what agents in the field mostly produce.
+# Must be a vision-capable model: https://console.groq.com/docs/models
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 DAILY_LIMIT_PER_AGENT = "40"
 DAILY_LIMIT_PER_IP = "120"
@@ -40,3 +44,4 @@ id = "f67d5be25eaa46ce95c79df3c3959b93"
 # Secrets are NOT set here — this file is committed. Set them once, encrypted:
 #   npx wrangler secret put GEMINI_API_KEY
 #   npx wrangler secret put OPENROUTER_API_KEY
+#   npx wrangler secret put GROQ_API_KEY

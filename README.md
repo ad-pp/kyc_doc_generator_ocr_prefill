@@ -38,10 +38,15 @@ generates every document manually, exactly as before.
 The Worker decides the order. The client sends one file and gets structured
 JSON back; it has no provider setting and no way to influence the choice.
 
-| | Chain | Model |
-|---|---|---|
-| **Primary** | Google Gemini | `gemini-2.5-flash` |
-| **Secondary** | OpenRouter | `OPENROUTER_MODEL`, default `google/gemma-3-27b-it:free` |
+| | Vendor | Model | Accepts |
+|---|---|---|---|
+| **Primary** | Google Gemini | `gemini-2.5-flash` | PDF + images |
+| **Secondary** | OpenRouter | `OPENROUTER_MODEL` | PDF + images |
+| **Tertiary** | Groq | `GROQ_MODEL` | images only |
+
+Three vendors, tried in order. Groq's vision models take images but not PDFs,
+so it covers photo uploads — what agents in the field mostly produce — and
+declines PDFs immediately with a clear reason rather than a confusing error.
 
 **Both read the document directly** — no OCR service in front of either.
 That is the important design point. A free-tier OCR API caps file size and
@@ -59,6 +64,23 @@ images and PDFs.
 
 If both chains fail, the response says which failed and why, and the app shows
 it, so an agent can report the cause from their own phone.
+
+### Checking the keys actually work
+
+`/api/health` reports which tiers have a key, not whether that key works. To
+prove it:
+
+```bash
+node tools/check-providers.mjs
+```
+
+It reads keys from `worker/.dev.vars` (or the environment) and sends one small
+real request per tier through the same provider functions the Worker uses, so
+a pass means the Worker will work. It reports per tier whether the key is
+accepted, the model exists, and the reply parses as JSON — and exits non-zero
+when nothing responds.
+
+Run it before deploying, and after changing any key or model.
 
 ### Quota without a login
 

@@ -146,7 +146,51 @@ export async function extractWithOpenRouter(file, env) {
   return parseModelJson(text, "OpenRouter");
 }
 
-export async function runSecondaryChain(file, env) {
-  if (!env.OPENROUTER_API_KEY) throw new Error("no OpenRouter key configured");
-  return extractWithOpenRouter(file, env);
+// ---- TERTIARY: Groq, a third vendor -----------------------------------------
+// Groq's vision models take images, not PDFs. That makes it a genuine last
+// resort for photo uploads — which is what agents in the field actually
+// produce — and a clear, immediate failure for PDFs rather than a confusing
+// provider error.
+export async function extractWithGroq(file, env) {
+  const model = env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+  if ((file.type || "").includes("pdf")) {
+    throw new Error("Groq accepts images only, and this upload is a PDF");
+  }
+  const dataUrl = "data:" + (file.type || "image/jpeg") + ";base64," + (await fileToBase64(file));
+  const response = await withTimeout(
+    fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.GROQ_API_KEY },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: buildVisionPrompt() },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+      }),
+    }),
+    60000,
+    "Groq"
+  );
+  if (!response.ok) throw await describeFailure(response, "Groq");
+  const payload = await response.json();
+  if (payload?.error) throw new Error("Groq error: " + (payload.error.message || JSON.stringify(payload.error)));
+  const text = payload?.choices?.[0]?.message?.content;
+  if (!text) throw new Error("Groq returned an empty response.");
+  return parseModelJson(text, "Groq");
 }
+
+// The ordered chain. Each tier is a different vendor, so one outage, quota
+// exhaustion or model retirement cannot take out the ones behind it.
+export const PROVIDER_CHAIN = [
+  { name: "gemini", keyVar: "GEMINI_API_KEY", run: extractWithGeminiVision },
+  { name: "openrouter", keyVar: "OPENROUTER_API_KEY", run: extractWithOpenRouter },
+  { name: "groq", keyVar: "GROQ_API_KEY", run: extractWithGroq },
+];

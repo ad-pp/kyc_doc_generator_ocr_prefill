@@ -83,7 +83,7 @@ echo "    Paste each key when prompted. Input is hidden and stored encrypted"
 echo "    in Cloudflare — never written to this repo."
 # Existing secrets are left alone so a re-run doesn't ask for everything again.
 EXISTING_SECRETS="$($WRANGLER secret list 2>/dev/null || true)"
-for KEY in GEMINI_API_KEY OPENROUTER_API_KEY; do
+for KEY in GEMINI_API_KEY OPENROUTER_API_KEY GROQ_API_KEY; do
   case "$EXISTING_SECRETS" in
     *"$KEY"*)
       echo; echo "    $KEY  already stored — skipping."
@@ -92,7 +92,8 @@ for KEY in GEMINI_API_KEY OPENROUTER_API_KEY; do
   esac
   case "$KEY" in
     GEMINI_API_KEY)   echo; echo "    $KEY  (aistudio.google.com/apikey — primary chain)";;
-    OPENROUTER_API_KEY) echo; echo "    $KEY  (openrouter.ai/keys — fallback chain)";;
+    OPENROUTER_API_KEY) echo; echo "    $KEY  (openrouter.ai/keys — secondary)";;
+    GROQ_API_KEY)       echo; echo "    $KEY  (console.groq.com/keys — tertiary, images only)";;
   esac
   if ! $WRANGLER secret put "$KEY"; then
     warn "Storing $KEY failed. Re-run this script, or set it later with:"
@@ -155,13 +156,11 @@ case "$HEALTH" in
       warn "  curl -i $API_URL/api/health";;
 esac
 case "$HEALTH" in
-  *'"primary":true'*) ;;
-  *) warn "Primary chain is NOT configured — re-run and check the Gemini key.";;
+  *'"configured":false'*) warn "At least one provider tier has no key — see the line above.";;
 esac
-case "$HEALTH" in
-  *'"secondary":true'*) ;;
-  *) warn "Secondary chain is NOT configured — re-run and check the OpenRouter key.";;
-esac
+echo
+echo "    Verify the keys actually work (one small real request each):"
+echo "      node tools/check-providers.mjs"
 
 say "6/6  Wiring the app to the Worker"
 node "$ROOT/tools/apply-config.mjs" --api-url "$API_URL"
