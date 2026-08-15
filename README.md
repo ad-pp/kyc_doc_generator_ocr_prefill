@@ -14,42 +14,72 @@ This branch adds a **Partnership Firm-only** upload flow that can:
 3. Send OCR text to an LLM for structured extraction
 4. Show **suggested** prefills that the agent must review before generation
 
-### API keys are never stored in this repository
+### No login, no keys on the device
 
-This is a static site: **anything committed to `app.js` is publicly readable**,
-so no provider key lives in the code. Each agent supplies their own free-tier
-key at runtime under **"AI provider keys"** on the deed-upload card. Keys are
-kept in `sessionStorage` only — never in `localStorage`, never in the repo, and
-the browser discards them when the tab closes. A "Clear keys now" button wipes
-them on demand.
+Agents open a URL and start working — there is no sign-in, no app install, and
+nothing for them to configure. That is only possible because the OCR and LLM
+keys are not on the device at all.
 
-### Providers
+A static site ships its own source, so anything committed to `app.js` is
+publicly readable and any key typed into the browser belongs to whoever is
+holding the phone. The keys therefore live in a small Cloudflare Worker
+(`worker/`), set **once** by the maintainer with `wrangler secret put`. The
+browser only knows the Worker's public URL:
 
-| Role | Primary | Secondary |
-|------|---------|-----------|
-| OCR  | **OCR.space** free tier — browser-callable (CORS), 25k calls/month, 1 MB per file, PDFs up to 3 pages | **Custom proxy** endpoint (`{ text, pages[], warnings[] }`), or a `.txt` upload which needs no OCR |
-| LLM  | **Google Gemini** (`gemini-2.5-flash`) free tier | **OpenRouter** free models (e.g. `meta-llama/llama-3.3-70b-instruct:free`) |
-
-Both LLM providers are called directly from the browser with the agent's own
-key and return JSON in the same schema, so switching provider is a dropdown —
-no code change. Gemini's key is sent as an `x-goog-api-key` header rather than
-a query parameter, keeping it out of URL logs and browser history.
-
-Scanned PDFs and images cannot be read without OCR. With OCR set to "None" the
-app accepts `.txt` only and says so, instead of feeding binary bytes to the
-model.
-
-Expected shape from a custom OCR proxy:
-
-```json
-{
-  "text": "full extracted text",
-  "pages": [
-    { "page": 1, "text": "page 1 text" }
-  ],
-  "warnings": []
-}
+```js
+const API_BASE_URL = "https://docgen-api.<your-subdomain>.workers.dev";
 ```
+
+Leave it blank and the deed-upload card is hidden entirely — the app still
+generates every document manually, exactly as before.
+
+### Providers — chosen by the backend, not the agent
+
+The Worker decides the order. The client sends one file and gets structured
+JSON back; it has no provider setting and no way to influence the choice.
+
+| | Chain | What it does |
+|---|---|---|
+| **Primary** | Gemini 2.5 Flash (multimodal) | Reads the deed image/PDF directly — OCR and extraction in a single call |
+| **Secondary** | OCR.space → Groq (Llama 3.3 70B) | A real OCR engine produces page text, then a different LLM extracts from it |
+
+Both are free tiers. The secondary deliberately uses different vendors at both
+stages, so one provider's outage or exhausted quota cannot take down both
+attempts. If the primary fails, the response carries a warning saying a backup
+was used; if both fail, the agent is told to fill the form manually and the
+upload is not retried automatically.
+
+The one-call primary is not just simpler — a multimodal model reading the
+original scan generally beats OCR-then-LLM on phone-camera photos, where
+classical OCR loses text to skew, shadow and low contrast.
+
+### Quota without a login
+
+No sign-in means no user identity, so limits are enforced on what is available:
+a per-day cap per agent mobile number (already collected in Step 1) and a
+per-day cap per client IP so a missing or mistyped number cannot bypass it.
+Both are set in `worker/wrangler.toml` and counted in Workers KV. Over the cap,
+the upload returns a clear message; document generation is never blocked.
+
+### Deploying the API Worker (one time)
+
+```bash
+cd worker
+npx wrangler kv namespace create USAGE     # paste the id into wrangler.toml
+npx wrangler secret put GEMINI_API_KEY     # primary
+npx wrangler secret put OCRSPACE_API_KEY   # secondary OCR
+npx wrangler secret put GROQ_API_KEY       # secondary LLM
+npx wrangler deploy
+```
+
+Then set `ALLOWED_ORIGINS` in `wrangler.toml` to the exact origin the app is
+served from, and paste the deployed Worker URL into `API_BASE_URL` in `app.js`.
+`GET /api/health` reports which chains are configured. Secrets are encrypted at
+rest and never appear in the repo, in `wrangler.toml`, or in the browser.
+
+Cloudflare's free plan covers 100,000 Worker requests/day and 1,000 KV
+writes/day, which is far beyond what a field team generates. There is no server
+to keep alive, patch, or scale.
 
 ### Important limits
 
@@ -63,6 +93,8 @@ Expected shape from a custom OCR proxy:
 - `index.html` — the page shell (styles + layout container). Open this file.
 - `app.js` — the entire application (state, validation, docx generation,
   print/PDF fallback). Loaded by `index.html` as an ES module.
+- `worker/` — Cloudflare Worker holding the OCR/LLM keys and the
+  primary/secondary failover logic. Deployed separately; see above.
 - `google-apps-script.gs` — companion script for logging to a Google Sheet.
 
 ## How it works
@@ -152,17 +184,20 @@ blank, so nothing is posted to Apps Script. `google-apps-script.gs` is retained
 only so logging can be switched back on later — redeploy the web app and paste
 the `/exec` URL back into `SHEETS_URL`; no other code change is needed.
 
-### Local usage log (current behaviour)
+### Usage log (current behaviour)
 
-Every generation appends one row — timestamp, agent mobile, merchant mobile/ID,
-new/existing — to `localStorage` on that device. Step 1 shows the row count and
-offers **Export usage log (CSV)** and **Clear log**. The log survives the
-per-merchant reset and is capped at the most recent 1000 rows.
+Every generation records one row — timestamp, agent mobile, merchant mobile/ID,
+new/existing:
 
-This is per-device, so it does not aggregate across agents. For a POC that is
-usually enough. If central counting becomes necessary without standing up a
-backend, the cheapest options are a **Cloudflare Worker** (100k requests/day
-free) writing to Workers KV, or re-enabling the Apps Script endpoint above.
+- **Centrally**, posted to the Worker's `/api/log` and kept in Workers KV for
+  180 days, when `API_BASE_URL` is configured. No login needed, and the post is
+  fire-and-forget so it can never delay a download.
+- **On the device**, in `localStorage`, capped at the most recent 1000 rows.
+  Step 1 shows the count and offers **Export usage log (CSV)** and **Clear log**,
+  which stays useful as an offline fallback.
+
+Extraction calls are logged separately by the Worker, including which provider
+chain served them, so primary-versus-fallback rates are visible.
 
 ## Document coverage
 
@@ -196,14 +231,17 @@ transactions or commercial SaaS-style hosting. A private repository does
 not automatically make its Pages URL private. This matters because the app
 handles PAN, DOB, residential address and ownership information.
 
-For production, **Cloudflare Pages** is the recommended free static host:
+Since the app is used without a login, put it on **Cloudflare Pages** alongside
+the API Worker — one vendor, one dashboard, both free:
 
 - GitHub integration and automatic deployment on every push.
 - Preview deployments for every branch/pull request.
 - Static asset requests are not metered on the free Pages plan.
 - Security headers and redirects can be defined in repository files.
-- Cloudflare Access can add corporate SSO if required (its free tier is
-  suitable only for a limited user count; verify current enterprise needs).
+- Cloudflare Access can add corporate SSO later if a login is ever wanted
+  (free for up to 50 users). It is deliberately **not** enabled here: agents
+  work without any sign-in, and usage is instead capped per mobile number and
+  per IP in the Worker.
 
 Deployment is change-friendly: connect the same GitHub repository in
 Cloudflare Pages, select no framework/build command, and publish the folder
@@ -269,3 +307,9 @@ appear bold + underlined (i.e. "this was filled in by the agent").
   mobile-first responsive layout (single column below 600px).
 - Auto-save is debounced (250ms) so typing doesn't feel laggy on slower
   devices.
+- No login, no install, no per-agent setup: open the URL and start.
+- Deed photos are downscaled to 2000px and re-encoded as JPEG **on the phone**
+  before upload — a 9.6 MB camera shot goes out at about 1.4 MB, which matters
+  on a 3G connection and keeps a large photo inside the Worker's 8 MB cap.
+  Phones too old for `createImageBitmap` fall back to uploading the original.
+- Heavy libraries (docx preview, PDF export) are still loaded only on demand.

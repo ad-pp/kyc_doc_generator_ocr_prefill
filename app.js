@@ -12,18 +12,22 @@ import * as docxLib from "./vendor/docx-8.2.2.js";
 const SHEETS_URL = "";
 
 // NO API KEY IS EVER STORED IN THIS FILE OR IN THE REPOSITORY.
-// Anything shipped to the browser is public, so provider keys are supplied by
-// the agent at runtime (Step 4 -> "AI provider keys") and kept in
-// sessionStorage only, which the browser discards when the tab is closed.
-const DEFAULT_MODELS = {
-  gemini: "gemini-2.5-flash",
-  openrouter: "meta-llama/llama-3.3-70b-instruct:free",
-};
+// Anything shipped to the browser is public, so OCR/LLM keys live only in the
+// Cloudflare Worker under worker/ — configured once by the maintainer, never
+// entered by an agent. This is just the Worker's public URL, not a secret.
+// Blank = deed upload is disabled and the form stays fully manual.
+const API_BASE_URL = "";
+
+// Photos from a phone camera are 4-8 MB. Downscaling before upload keeps the
+// request small on a 3G connection and well inside the Worker's size cap,
+// while staying legible enough for OCR.
+const UPLOAD_MAX_EDGE_PX = 2000;
+const UPLOAD_JPEG_QUALITY = 0.82;
+const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
 
 const LS_MERCHANT = "docgen_merchant_v1";   // clears per onboarding
 const LS_AGENT    = "docgen_agent_v1";      // permanent - agent mobile only
 const LS_USAGE    = "docgen_usage_log_v1";  // local usage log (CSV export)
-const SS_AI_CFG   = "docgen_ai_cfg_v1";     // sessionStorage ONLY - provider keys
 
 const PAN_REGEX = /^[A-Z]{5}\d{4}[A-Z]$/;
 const AADHAAR_LAST4 = /^\d{4}$/;
@@ -108,7 +112,6 @@ const state = {
   extractionRawText: "",
   extractionResult: null,
   extractionApplied: false,
-  showAiSettings: false,
 };
 
 let formData = {};
@@ -256,40 +259,20 @@ function flashSave() {
   setTimeout(() => { if (el) el.textContent = "Auto-save ON"; }, 1400);
 }
 
-// ---- AI RUNTIME CONFIG (sessionStorage only, never committed) ----
-// Provider keys live in sessionStorage for the life of the browser tab. They
-// are never written to localStorage, never sent anywhere except the provider
-// the agent selected, and never appear in this repository.
-const AI_CFG_DEFAULTS = {
-  ocrProvider: "ocrspace",   // ocrspace | proxy | none
-  ocrKey: "",
-  ocrProxyUrl: "",
-  llmProvider: "gemini",     // gemini | openrouter
-  llmKey: "",
-  llmModel: "",
-};
-function loadAiConfig() {
-  try {
-    const raw = sessionStorage.getItem(SS_AI_CFG);
-    return raw ? { ...AI_CFG_DEFAULTS, ...JSON.parse(raw) } : { ...AI_CFG_DEFAULTS };
-  } catch (e) { return { ...AI_CFG_DEFAULTS }; }
-}
-function saveAiConfig(patch) {
-  const next = { ...loadAiConfig(), ...patch };
-  try { sessionStorage.setItem(SS_AI_CFG, JSON.stringify(next)); } catch (e) { /* ignore */ }
-  return next;
-}
-function clearAiConfig() {
-  try { sessionStorage.removeItem(SS_AI_CFG); } catch (e) { /* ignore */ }
-}
-function aiModelFor(cfg) {
-  return (cfg.llmModel || "").trim() || DEFAULT_MODELS[cfg.llmProvider] || DEFAULT_MODELS.gemini;
+// ---- EXTRACTION API ----
+// No key of any kind lives in the browser. API_BASE_URL points at the Worker
+// (see worker/), which holds every provider key as an encrypted secret and
+// decides the primary/secondary order itself. A URL is not a secret, so this
+// value is safe to commit.
+function apiUrl(path) {
+  return API_BASE_URL ? API_BASE_URL.replace(/\/+$/, "") + path : "";
 }
 
-// ---- USAGE LOG (local; Google Apps Script logging suspended) ----
+// ---- USAGE LOG (Google Apps Script logging suspended) ----
 // One row per merchant per session: timestamp, agent mobile, merchant, status.
-// Held in localStorage and exportable as CSV. If SHEETS_URL is ever restored,
-// the same event is additionally posted to Apps Script via the hidden form.
+// Written to localStorage (CSV-exportable) and, when the API is configured,
+// also posted to the Worker so usage is visible centrally without any login.
+// If SHEETS_URL is ever restored, the same event goes to Apps Script too.
 const USAGE_LOG_LIMIT = 1000;
 function readUsageLog() {
   try {
@@ -311,6 +294,19 @@ function logUsage() {
     rows.push(entry);
     localStorage.setItem(LS_USAGE, JSON.stringify(rows.slice(-USAGE_LOG_LIMIT)));
   } catch (e) { /* storage full or blocked - never block generation */ }
+  // Fire-and-forget: logging must never delay or block document generation.
+  const endpoint = apiUrl("/api/log");
+  if (endpoint) {
+    try {
+      // keepalive lets the POST survive the agent navigating away immediately.
+      fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+        keepalive: true,
+      }).catch(() => {});
+    } catch (e) { /* silent */ }
+  }
   // Suspended by default; only runs if SHEETS_URL is deliberately restored.
   if (SHEETS_URL) {
     try { submitViaHiddenForm(SHEETS_URL, entry); } catch (e) { /* silent */ }
@@ -542,169 +538,58 @@ function resetExtractionState(keepFileName = false) {
   state.extractionApplied = false;
   if (!keepFileName) state.extractionFileName = "";
 }
-async function readFileAsBase64(file) {
-  const buffer = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-  const chunk = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
-  }
-  return btoa(binary);
-}
-function isPlainTextFile(file) {
-  return (file.type || "").startsWith("text/") || /\.txt$/i.test(file.name || "");
-}
-async function readPlainText(file, warnings = []) {
-  const text = await file.text();
-  return { pages: [{ page: 1, text }], text, warnings };
-}
-// OCR.space free tier: browser-callable (CORS enabled), no backend required.
-// Free-plan limits: ~1 MB per file, PDFs up to 3 pages, 25k requests/month.
-async function extractTextWithOcrSpace(file, apiKey) {
-  const form = new FormData();
-  form.append("file", file, file.name);
-  form.append("language", "eng");
-  form.append("isOverlayRequired", "false");
-  form.append("scale", "true");
-  form.append("OCREngine", "2");
-  const response = await fetch("https://api.ocr.space/parse/image", {
-    method: "POST",
-    headers: { apikey: apiKey },
-    body: form,
-  });
-  if (!response.ok) throw new Error("OCR.space request failed with status " + response.status);
-  const payload = await response.json();
-  if (payload.IsErroredOnProcessing) {
-    const message = Array.isArray(payload.ErrorMessage) ? payload.ErrorMessage.join(" ") : payload.ErrorMessage;
-    throw new Error("OCR.space error: " + (message || "unknown error"));
-  }
-  const results = Array.isArray(payload.ParsedResults) ? payload.ParsedResults : [];
-  const pages = results.map((result, index) => ({ page: index + 1, text: result.ParsedText || "" }));
-  const text = pages.map((page) => page.text).join("\n\n").trim();
-  if (!text) throw new Error("OCR returned no readable text. Try a clearer scan.");
-  return { pages, text, warnings: [] };
-}
-// Generic proxy hook, kept for anyone who later fronts a provider themselves.
-async function extractTextWithProxy(file, proxyUrl) {
-  const response = await fetch(proxyUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      filename: file.name,
-      mimeType: file.type || "application/octet-stream",
-      contentBase64: await readFileAsBase64(file),
-    }),
-  });
-  if (!response.ok) throw new Error("OCR request failed with status " + response.status);
-  const payload = await response.json();
-  const pages = Array.isArray(payload.pages) ? payload.pages : [];
-  const text = payload.text || pages.map((page) => page.text || "").join("\n\n");
-  return { pages, text, warnings: Array.isArray(payload.warnings) ? payload.warnings : [] };
-}
-async function extractTextWithProvider(file, cfg) {
-  // A .txt file needs no OCR at all, whatever the provider setting is.
-  if (isPlainTextFile(file)) return readPlainText(file);
-
-  if (cfg.ocrProvider === "proxy") {
-    if (!cfg.ocrProxyUrl.trim()) throw new Error("OCR proxy URL is not set. Add it under \"AI provider keys\".");
-    return extractTextWithProxy(file, cfg.ocrProxyUrl.trim());
-  }
-  if (cfg.ocrProvider === "ocrspace") {
-    if (!cfg.ocrKey.trim()) throw new Error("OCR.space API key is not set. Add it under \"AI provider keys\".");
-    return extractTextWithOcrSpace(file, cfg.ocrKey.trim());
-  }
-  // "none": scanned PDFs and images cannot be read without OCR. Reading their
-  // bytes as text would feed binary garbage to the model, so refuse instead.
-  throw new Error("OCR is turned off, so only .txt files can be read. Pick an OCR provider under \"AI provider keys\".");
-}
-function buildExtractionPrompt(ocrResult) {
-  return [
-    "You extract structured data from Indian partnership deeds or partnership agreements.",
-    "Return JSON only. Do not wrap in markdown.",
-    "Rules:",
-    "1. Extract only facts explicitly present in the OCR text.",
-    "2. If a field is unclear, conflicting, or absent, leave value empty and add a warning when helpful.",
-    "3. Do not infer PAN, DOB, Aadhaar, POA, PEP, BO category, or MDF-specific fields.",
-    "4. partnershipRegType must be one of: registered, unregistered, or empty.",
-    "5. share should be a numeric percentage string only when directly present.",
-    "6. Include provenance using page numbers and short snippets.",
-    "Schema:",
-    JSON.stringify({
-      documentType: "partnership_deed",
-      sourceQuality: { ocrReadable: true, warnings: [] },
-      entity: {
-        firmName: { value: "", confidence: 0, source: [], warning: "" },
-        regAddress: { value: "", confidence: 0, source: [], warning: "" },
-        principalAddress: { value: "", confidence: 0, source: [], warning: "" },
-        partnershipRegType: { value: "", confidence: 0, source: [], warning: "" },
-        deedDate: { value: "", confidence: 0, source: [], warning: "" },
-      },
-      partners: [
-        {
-          name: { value: "", confidence: 0, source: [], warning: "" },
-          designation: { value: "", confidence: 0, source: [], warning: "" },
-          address: { value: "", confidence: 0, source: [], warning: "" },
-          share: { value: "", confidence: 0, source: [], warning: "" },
-        },
-      ],
-      unmappedNotes: [],
-    }),
-    "OCR TEXT:",
-    ocrResult.pages.map((page, index) => "Page " + (page.page || index + 1) + ":\n" + (page.text || "")).join("\n\n"),
-  ].join("\n");
-}
-// Models sometimes wrap JSON in a markdown fence despite being told not to.
-function parseModelJson(text, providerLabel) {
-  const cleaned = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+// Shrink camera photos in the browser so a low-end phone on a weak connection
+// is not uploading an 8 MB image. PDFs are passed through untouched.
+async function prepareUpload(file) {
+  if (!/^image\//.test(file.type || "")) return { file, note: "" };
   try {
-    return JSON.parse(cleaned);
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, UPLOAD_MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 1 && file.size <= 1.5 * 1024 * 1024) return { file, note: "" };
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", UPLOAD_JPEG_QUALITY));
+    if (!blob || blob.size >= file.size) return { file, note: "" };
+    const name = (file.name || "upload").replace(/\.[^.]+$/, "") + ".jpg";
+    return {
+      file: new File([blob], name, { type: "image/jpeg" }),
+      note: "Photo compressed from " + formatBytes(file.size) + " to " + formatBytes(blob.size) + " before upload.",
+    };
   } catch (e) {
-    throw new Error(providerLabel + " returned a response that was not valid JSON.");
+    // Older Android WebViews may lack createImageBitmap; send the original.
+    return { file, note: "" };
   }
 }
-async function extractWithGemini(ocrResult, cfg) {
-  // The key goes in a header, not the query string, so it stays out of any
-  // URL logging or browser history.
-  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(aiModelFor(cfg)) + ":generateContent";
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.llmKey.trim() },
-    body: JSON.stringify({
-      generationConfig: { responseMimeType: "application/json", temperature: 0 },
-      contents: [{ role: "user", parts: [{ text: buildExtractionPrompt(ocrResult) }] }],
-    }),
-  });
-  if (!response.ok) throw new Error("Gemini extraction failed with status " + response.status);
-  const payload = await response.json();
-  const text = payload && payload.candidates && payload.candidates[0] && payload.candidates[0].content && payload.candidates[0].content.parts && payload.candidates[0].content.parts[0] && payload.candidates[0].content.parts[0].text;
-  if (!text) throw new Error("Gemini returned an empty extraction response.");
-  return parseModelJson(text, "Gemini");
+function formatBytes(bytes) {
+  return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
 }
-async function extractWithOpenRouter(ocrResult, cfg) {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + cfg.llmKey.trim() },
-    body: JSON.stringify({
-      model: aiModelFor(cfg),
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: buildExtractionPrompt(ocrResult) }],
-    }),
-  });
-  if (!response.ok) throw new Error("OpenRouter extraction failed with status " + response.status);
-  const payload = await response.json();
-  const text = payload && payload.choices && payload.choices[0] && payload.choices[0].message && payload.choices[0].message.content;
-  if (!text) throw new Error("OpenRouter returned an empty extraction response.");
-  return parseModelJson(text, "OpenRouter");
+
+// One call. The Worker runs OCR + extraction, falls back to its secondary
+// providers on its own, and returns the same schema either way.
+async function extractViaApi(file, agentMobile) {
+  const endpoint = apiUrl("/api/extract");
+  if (!endpoint) throw new Error("Deed upload is not switched on for this build.");
+  const form = new FormData();
+  form.append("file", file, file.name || "upload");
+  form.append("agentMobile", agentMobile || "");
+  let response;
+  try {
+    response = await fetch(endpoint, { method: "POST", body: form });
+  } catch (e) {
+    throw new Error("Could not reach the document reader. Check your network and try again.");
+  }
+  let payload = null;
+  try { payload = await response.json(); } catch (e) { /* handled below */ }
+  if (!response.ok) {
+    throw new Error((payload && payload.error) || "Document reading failed (" + response.status + ").");
+  }
+  if (!payload) throw new Error("The document reader returned an unreadable response.");
+  return normalizeExtractionShape(payload);
 }
-async function extractStructuredData(ocrResult, cfg) {
-  if (!cfg.llmKey.trim()) throw new Error("No LLM API key set. Add one under \"AI provider keys\".");
-  const raw = cfg.llmProvider === "openrouter"
-    ? await extractWithOpenRouter(ocrResult, cfg)
-    : await extractWithGemini(ocrResult, cfg);
-  return normalizeExtractionShape(raw);
-}
+
 function applyExtractionToState() {
   if (!state.extractionResult) return;
   const result = state.extractionResult;
@@ -734,21 +619,24 @@ function applyExtractionToState() {
   rerender();
 }
 async function handleExtractionUpload(event) {
-  const file = event.target && event.target.files && event.target.files[0];
-  if (!file) return;
-  state.extractionFileName = file.name;
+  const original = event.target && event.target.files && event.target.files[0];
+  if (event.target) event.target.value = "";
+  if (!original) return;
+  state.extractionFileName = original.name;
   state.extractionStatus = "running";
   state.extractionError = "";
   state.extractionWarnings = [];
   state.extractionApplied = false;
+  state.extractionRawText = "";
   rerender();
   try {
-    const cfg = loadAiConfig();
-    const ocrResult = await extractTextWithProvider(file, cfg);
-    state.extractionRawText = ocrResult.text || "";
-    const extractionResult = await extractStructuredData(ocrResult, cfg);
+    const { file, note } = await prepareUpload(original);
+    if (file.size > UPLOAD_MAX_BYTES) {
+      throw new Error("File is " + formatBytes(file.size) + ". Photograph one page at a time, or upload a smaller PDF.");
+    }
+    const extractionResult = await extractViaApi(file, state.agentMobile);
     state.extractionResult = extractionResult;
-    state.extractionWarnings = [...(ocrResult.warnings || []), ...(extractionResult.sourceQuality.warnings || [])];
+    state.extractionWarnings = [...(note ? [note] : []), ...(extractionResult.sourceQuality.warnings || [])];
     state.extractionStatus = "done";
     rerender();
   } catch (error) {
@@ -756,8 +644,6 @@ async function handleExtractionUpload(event) {
     state.extractionStatus = "error";
     state.extractionError = error.message || "Extraction failed.";
     rerender();
-  } finally {
-    if (event.target) event.target.value = "";
   }
 }
 function renderSuggestionCard(title, field) {
@@ -778,49 +664,18 @@ function renderPartnerSuggestionCard(partner, index) {
   if (!pieces) return "";
   return '<div class="prefill-card"><h4>Partner ' + (index + 1) + '</h4><div class="prefill-grid">' + pieces + '</div></div>';
 }
-// Keys are typed here at runtime and held only for this browser tab. Nothing
-// is written to the repository, and closing the tab discards them.
-function aiSettingsHTML() {
-  const cfg = loadAiConfig();
-  const ready = cfg.llmKey.trim() && (cfg.ocrProvider === "none" || (cfg.ocrProvider === "proxy" ? cfg.ocrProxyUrl.trim() : cfg.ocrKey.trim()));
-  const summary = '<div class="pill-row"><span class="pill ' + (ready ? "ok" : "muted") + '">' + (ready ? "Keys set for this tab" : "Keys not set") + '</span>' +
-    '<button type="button" class="reset-link" ' + on("click", () => { state.showAiSettings = !state.showAiSettings; rerender(); }) + '>' + (state.showAiSettings ? "Hide" : "AI provider keys") + '</button></div>';
-  if (!state.showAiSettings) return summary;
-  const opt = option;
-  return summary +
-    '<div class="upload-box" style="margin-top:10px">' +
-      '<div class="info-blue">Keys are stored in <strong>sessionStorage only</strong> \u2014 they are never saved to this repository or to disk, and the browser discards them when you close the tab. Use a personal free-tier key; do not paste a shared production key.</div>' +
-      '<div class="g2">' +
-        '<div class="f"><label>OCR provider</label><select ' + on("change", (e) => { saveAiConfig({ ocrProvider: e.target.value }); rerender(); }) + ">" +
-          opt("ocrspace", "OCR.space (free tier)", cfg.ocrProvider) +
-          opt("proxy", "Custom proxy endpoint", cfg.ocrProvider) +
-          opt("none", "None (.txt files only)", cfg.ocrProvider) +
-        "</select></div>" +
-        (cfg.ocrProvider === "ocrspace"
-          ? '<div class="f"><label>OCR.space API key</label><input type="password" data-fid="aiOcrKey" autocomplete="off" value="' + attr(cfg.ocrKey) + '" ' + on("input", (e) => saveAiConfig({ ocrKey: e.target.value })) + ' /><span class="hint">Free key from ocr.space \u2014 25k calls/month, 1 MB per file, PDFs up to 3 pages.</span></div>'
-          : cfg.ocrProvider === "proxy"
-            ? '<div class="f"><label>OCR proxy URL</label><input type="url" data-fid="aiOcrProxy" autocomplete="off" value="' + attr(cfg.ocrProxyUrl) + '" ' + on("input", (e) => saveAiConfig({ ocrProxyUrl: e.target.value })) + ' /><span class="hint">Must return <code>{ text, pages[], warnings[] }</code>.</span></div>'
-            : '<div class="f"><label>OCR</label><span class="hint">Turned off \u2014 only <code>.txt</code> uploads will be read.</span></div>') +
-        '<div class="f"><label>LLM provider</label><select ' + on("change", (e) => { saveAiConfig({ llmProvider: e.target.value, llmModel: "" }); rerender(); }) + ">" +
-          opt("gemini", "Google Gemini (free tier)", cfg.llmProvider) +
-          opt("openrouter", "OpenRouter (free models)", cfg.llmProvider) +
-        "</select></div>" +
-        '<div class="f"><label>LLM API key</label><input type="password" data-fid="aiLlmKey" autocomplete="off" value="' + attr(cfg.llmKey) + '" ' + on("input", (e) => saveAiConfig({ llmKey: e.target.value })) + ' /><span class="hint">' + (cfg.llmProvider === "gemini" ? "From Google AI Studio." : "From openrouter.ai \u2014 pick a <code>:free</code> model.") + '</span></div>' +
-        '<div class="f s2"><label>Model (optional)</label><input data-fid="aiLlmModel" autocomplete="off" placeholder="' + attr(DEFAULT_MODELS[cfg.llmProvider] || "") + '" value="' + attr(cfg.llmModel) + '" ' + on("input", (e) => saveAiConfig({ llmModel: e.target.value })) + ' /></div>' +
-      "</div>" +
-      '<div class="act" style="padding-top:8px"><button type="button" class="btn btn-s" ' + on("click", () => { clearAiConfig(); showToast("Keys cleared", "ok"); rerender(); }) + '>Clear keys now</button></div>' +
-    "</div>";
-}
 function partnershipUploadHTML() {
   if (!extractionEnabled()) return "";
+  // With no API URL configured there is nothing to upload to, so the card is
+  // hidden entirely rather than offering a control that always fails.
+  if (!API_BASE_URL) return "";
   const result = state.extractionResult;
   return '<div class="card"><div class="chd"><h2>\ud83e\udde0 Partnership Deed Upload Prefill</h2><span class="badge">Prototype</span></div><div class="cbd">' +
     '<div class="info-blue">Upload a partnership deed/agreement to prefill explicit facts only. Every value still needs manual review before document generation.</div>' +
-    aiSettingsHTML() +
     '<div class="upload-box">' +
-      '<div class="f"><label>Upload Partnership Deed / Agreement</label><input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp" ' + on("change", handleExtractionUpload) + ' /><span class="hint">Scanned PDFs and images need an OCR provider; <code>.txt</code> files are read directly.</span></div>' +
+      '<div class="f"><label>Upload Partnership Deed / Agreement</label><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" ' + on("change", handleExtractionUpload) + ' /><span class="hint">Photograph the deed or upload a PDF. Photos are compressed on this phone before upload, so this works on a slow connection.</span></div>' +
       (state.extractionFileName ? '<div class="prefill-meta">Selected file: <strong>' + esc(state.extractionFileName) + '</strong></div>' : '') +
-      (state.extractionStatus === "running" ? '<div class="info-green" style="margin-top:10px"><span class="spin" style="border-top-color:#1f8f54;border-color:rgba(31,143,84,.25)"></span> Extracting deed text and mapping fields…</div>' : '') +
+      (state.extractionStatus === "running" ? '<div class="info-green" style="margin-top:10px"><span class="spin" style="border-top-color:#1f8f54;border-color:rgba(31,143,84,.25)"></span> Reading the deed and mapping fields… this can take up to a minute on a slow connection.</div>' : '') +
       (state.extractionStatus === "error" ? '<div class="error-box" style="margin-top:10px">' + esc(state.extractionError) + '</div>' : '') +
       (state.extractionWarnings.length ? '<div class="warn-box" style="margin-top:10px"><strong>Warnings:</strong><ul>' + state.extractionWarnings.map((warning) => '<li>' + esc(warning) + '</li>').join("") + '</ul></div>' : '') +
       (result ? '<div style="margin-top:12px"><div class="act" style="padding-top:0"><button type="button" class="btn btn-p" ' + on("click", applyExtractionToState) + '>Apply Suggested Prefill</button><button type="button" class="btn btn-s" ' + on("click", () => { resetExtractionState(); rerender(); }) + '>Clear Suggestions</button></div>' +
@@ -1666,7 +1521,7 @@ function renderApp() {
           : '<div class="f s2"><label>Merchant ID *</label><input class="' + (errs.merchantId ? "err" : "") + '" value="' + attr(state.merchantId) + '" ' + on("input", (e) => { state.merchantId = e.target.value; scheduleSave(); }) + ' />' + (errs.merchantId ? '<span class="err-msg">' + errs.merchantId + "</span>" : "") + "</div>") +
       "</div>" +
       '<div class="divider">Usage log</div>' +
-      '<div class="info-blue">Google Sheets logging is suspended. Each generation is recorded on this device only (' + usageCount + ' entr' + (usageCount === 1 ? "y" : "ies") + ') and can be exported as CSV.</div>' +
+      '<div class="info-blue">' + (API_BASE_URL ? "Each generation is logged centrally and " : "Google Sheets logging is suspended. Each generation is ") + 'recorded on this device (' + usageCount + ' entr' + (usageCount === 1 ? "y" : "ies") + ') and can be exported as CSV.</div>' +
       '<div class="act" style="padding-top:8px"><button type="button" class="btn btn-s" ' + on("click", downloadUsageLog) + '>Export usage log (CSV)</button><button type="button" class="btn btn-s" ' + on("click", clearUsageLog) + '>Clear log</button></div>' +
       "</div></div>" +
       pageActions('', '<button class="btn btn-p" ' + on("click", () => { if (validateStep0()) { state.step = 1; rerender(); } }) + '>Next: Platform & Entity \u2192</button>');
@@ -1823,6 +1678,7 @@ function renderApp() {
 }
 
 // ---- INIT ----
+try { sessionStorage.removeItem("docgen_ai_cfg_v1"); } catch (e) { /* ignore */ }
 loadAgent();
 loadMerchant();
 rerender();

@@ -1,0 +1,24 @@
+name = "docgen-api"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Comma-separated list of exact origins allowed to call this Worker.
+# Set it to wherever the static app is published.
+[vars]
+ALLOWED_ORIGINS = "https://ad-pp.github.io"
+GEMINI_MODEL = "gemini-2.5-flash"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+DAILY_LIMIT_PER_AGENT = "40"
+DAILY_LIMIT_PER_IP = "120"
+
+# Quota counters and the usage log. Create with:
+#   wrangler kv namespace create USAGE
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "USAGE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Secrets are NOT set here. Set them once, encrypted, with:
+#   wrangler secret put GEMINI_API_KEY
+#   wrangler secret put OCRSPACE_API_KEY
+#   wrangler secret put GROQ_API_KEY
