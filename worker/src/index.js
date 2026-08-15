@@ -97,6 +97,9 @@ async function handleExtract(request, env, ctx) {
   const started = Date.now();
   let result = null;
   let provider = "";
+  // Kept so a total failure can say WHY. Provider messages are status codes
+  // and human-readable text; no key is ever echoed back in them.
+  const failures = [];
 
   if (env.GEMINI_API_KEY) {
     try {
@@ -104,17 +107,43 @@ async function handleExtract(request, env, ctx) {
       provider = "gemini-vision";
     } catch (error) {
       warnings.push("Primary extraction was unavailable, so a backup provider was used.");
+      failures.push("primary: " + error.message);
       console.log("primary failed: " + error.message);
     }
+  } else {
+    failures.push("primary: no Gemini key configured");
   }
   if (!result) {
     try {
       result = await runSecondaryChain(file, env);
       provider = "ocrspace-groq";
     } catch (error) {
+      failures.push("secondary: " + error.message);
       console.log("secondary failed: " + error.message);
-      ctx.waitUntil(recordEvent(env, { type: "extract", ok: false, agentMobile, at: new Date().toISOString() }));
-      return json({ error: "Document reading is temporarily unavailable. Fill the form manually and try the upload again later." }, 502, request, env);
+      ctx.waitUntil(
+        recordEvent(env, {
+          type: "extract",
+          ok: false,
+          agentMobile,
+          failures,
+          fileType: file.type || "",
+          fileKb: Math.round(file.size / 1024),
+          at: new Date().toISOString(),
+        })
+      );
+      return json(
+        {
+          error: "Document reading is temporarily unavailable. Fill the form manually and try the upload again later.",
+          // Surfaced so a failure is diagnosable from the phone that hit it,
+          // rather than only from `wrangler tail` on someone's laptop.
+          detail: failures.join(" | "),
+          fileKb: Math.round(file.size / 1024),
+          fileType: file.type || "",
+        },
+        502,
+        request,
+        env
+      );
     }
   }
 

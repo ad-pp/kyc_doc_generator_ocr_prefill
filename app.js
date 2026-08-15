@@ -603,7 +603,12 @@ async function extractViaApi(file, agentMobile) {
   let payload = null;
   try { payload = await response.json(); } catch (e) { /* handled below */ }
   if (!response.ok) {
-    throw new Error((payload && payload.error) || "Document reading failed (" + response.status + ").");
+    const base = (payload && payload.error) || "Document reading failed (" + response.status + ").";
+    // The Worker reports which chain failed and why. Showing it here means the
+    // agent can read the cause off their own phone and quote it, instead of
+    // someone needing terminal access to the Worker logs.
+    const detail = payload && payload.detail ? " [" + payload.detail + "]" : "";
+    throw new Error(base + detail);
   }
   if (!payload) throw new Error("The document reader returned an unreadable response.");
   return normalizeExtractionShape(payload);
