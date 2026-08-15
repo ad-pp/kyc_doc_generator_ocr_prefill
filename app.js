@@ -6,15 +6,33 @@
 import * as docxLib from "./vendor/docx-8.2.2.js";
 
 // ---- CONFIG ----
-// Paste your Google Apps Script Web App URL here (see google-apps-script.gs).
-// Logs ONLY: timestamp, agent mobile number, merchant display name / ID.
-const SHEETS_URL = "https://script.google.com/a/macros/phonepe.com/s/AKfycbyOU_MKNPCXOPT7CYAAf2tmqZsQNSVTbP92QY-gw991gyJrEQdA7Tu_c_FlCsyxIn9_/exec"; // e.g. "https://script.google.com/macros/s/XXXXXXXX/exec"
-const OCR_PROXY_URL = "";
-const GEMINI_API_KEY = "";
-const GEMINI_MODEL = "gemini-2.5-flash";
+// Google Apps Script logging is SUSPENDED (see "USAGE LOG" below). Usage is
+// now recorded locally in the browser and can be exported as CSV. To restore
+// Sheets logging later, paste the Apps Script /exec URL back into SHEETS_URL.
+const SHEETS_URL = "";
+
+// NO API KEY IS EVER STORED IN THIS FILE OR IN THE REPOSITORY.
+// Anything shipped to the browser is public, so OCR/LLM keys live only in the
+// Cloudflare Worker under worker/ — configured once by the maintainer, never
+// entered by an agent. This is just the Worker's public URL, not a secret.
+// Blank = deed upload is disabled and the form stays fully manual.
+const API_BASE_URL = "https://docgen-api.braver-cygnet-0j.workers.dev";
+
+// Photos from a phone camera are 4-8 MB. Downscaling before upload keeps the
+// request small on a 3G connection and well inside the Worker's size cap,
+// while staying legible enough for OCR.
+// 1600px still resolves 10pt deed text comfortably once the page fills the
+// frame, and it keeps the encode fast on a low-end phone.
+const UPLOAD_MAX_EDGE_PX = 1600;
+// Below the fallback OCR service's ~1 MB free-plan cap, with headroom for
+// multipart overhead.
+const UPLOAD_TARGET_BYTES = 900 * 1024;
+const UPLOAD_JPEG_QUALITY_STEPS = [0.8, 0.68, 0.56, 0.45];
+const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
 
 const LS_MERCHANT = "docgen_merchant_v1";   // clears per onboarding
 const LS_AGENT    = "docgen_agent_v1";      // permanent - agent mobile only
+const LS_USAGE    = "docgen_usage_log_v1";  // local usage log (CSV export)
 
 const PAN_REGEX = /^[A-Z]{5}\d{4}[A-Z]$/;
 const AADHAAR_LAST4 = /^\d{4}$/;
@@ -246,26 +264,77 @@ function flashSave() {
   setTimeout(() => { if (el) el.textContent = "Auto-save ON"; }, 1400);
 }
 
-// ---- SHEET LOGGING (log-only, 2 datapoints) ----
-// Submitted as a real hidden-form POST (not fetch) so that, on a device/browser
-// already signed into the corporate @phonepe.com Google account, the request
-// carries a valid Google session and succeeds even though the Workspace admin
-// restricts Apps Script deployments to "Anyone within the organization" rather
-// than fully public "Anyone". If the agent isn't signed in, the hidden iframe
-// silently shows a Google sign-in page instead of logging \u2014 harmless, and it
-// never blocks or interrupts document generation.
-function logToSheet() {
-  if (!SHEETS_URL || state.loggedThisSession) return;
+// ---- EXTRACTION API ----
+// No key of any kind lives in the browser. API_BASE_URL points at the Worker
+// (see worker/), which holds every provider key as an encrypted secret and
+// decides the primary/secondary order itself. A URL is not a secret, so this
+// value is safe to commit.
+function apiUrl(path) {
+  return API_BASE_URL ? API_BASE_URL.replace(/\/+$/, "") + path : "";
+}
+
+// ---- USAGE LOG (Google Apps Script logging suspended) ----
+// One row per merchant per session: timestamp, agent mobile, merchant, status.
+// Written to localStorage (CSV-exportable) and, when the API is configured,
+// also posted to the Worker so usage is visible centrally without any login.
+// If SHEETS_URL is ever restored, the same event goes to Apps Script too.
+const USAGE_LOG_LIMIT = 1000;
+function readUsageLog() {
   try {
-    const payload = {
-      timestamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
-      agentMobile: state.agentMobile,
-      merchant: state.merchantStatus === "new" ? state.merchantMobile : state.merchantId,
-      merchantStatus: state.merchantStatus,
-    };
-    submitViaHiddenForm(SHEETS_URL, payload);
-    state.loggedThisSession = true;
-  } catch (e) { /* silent */ }
+    const raw = localStorage.getItem(LS_USAGE);
+    const rows = raw ? JSON.parse(raw) : [];
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) { return []; }
+}
+function logUsage() {
+  if (state.loggedThisSession) return;
+  const entry = {
+    timestamp: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+    agentMobile: state.agentMobile,
+    merchant: state.merchantStatus === "new" ? state.merchantMobile : state.merchantId,
+    merchantStatus: state.merchantStatus,
+  };
+  try {
+    const rows = readUsageLog();
+    rows.push(entry);
+    localStorage.setItem(LS_USAGE, JSON.stringify(rows.slice(-USAGE_LOG_LIMIT)));
+  } catch (e) { /* storage full or blocked - never block generation */ }
+  // Fire-and-forget: logging must never delay or block document generation.
+  const endpoint = apiUrl("/api/log");
+  if (endpoint) {
+    try {
+      // keepalive lets the POST survive the agent navigating away immediately.
+      fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+        keepalive: true,
+      }).catch(() => {});
+    } catch (e) { /* silent */ }
+  }
+  // Suspended by default; only runs if SHEETS_URL is deliberately restored.
+  if (SHEETS_URL) {
+    try { submitViaHiddenForm(SHEETS_URL, entry); } catch (e) { /* silent */ }
+  }
+  state.loggedThisSession = true;
+}
+function csvCell(value) {
+  return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
+}
+function downloadUsageLog() {
+  const rows = readUsageLog();
+  if (!rows.length) { showToast("No usage logged on this device yet", "er"); return; }
+  const header = ["Timestamp", "Agent Mobile Number", "Merchant (Mobile / ID)", "Merchant Status"];
+  const csv = [header.map(csvCell).join(",")]
+    .concat(rows.map((row) => [row.timestamp, row.agentMobile, row.merchant, row.merchantStatus].map(csvCell).join(",")))
+    .join("\r\n");
+  downloadBlob(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }), "docgen_usage_log.csv");
+  showToast("Usage log exported", "ok");
+}
+function clearUsageLog() {
+  try { localStorage.removeItem(LS_USAGE); } catch (e) { /* ignore */ }
+  showToast("Usage log cleared", "ok");
+  rerender();
 }
 
 function submitViaHiddenForm(url, data) {
@@ -474,89 +543,72 @@ function resetExtractionState(keepFileName = false) {
   state.extractionApplied = false;
   if (!keepFileName) state.extractionFileName = "";
 }
-async function readFileAsBase64(file) {
-  const buffer = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-  const chunk = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+// Shrink camera photos in the browser so a low-end phone on a weak connection
+// is not uploading an 8 MB image. PDFs are passed through untouched.
+//
+// The target is set by the STRICTEST provider in the chain, not the loosest:
+// the primary accepts multi-megabyte images, but the fallback OCR service caps
+// free-plan uploads around 1 MB. Sending 1.4 MB would work until the day the
+// primary is down, and then fail on exactly the scans that needed the backup.
+// So step the quality down until it fits, and only then give up on shrinking.
+async function prepareUpload(file) {
+  if (!/^image\//.test(file.type || "")) return { file, note: "" };
+  try {
+    const bitmap = await createImageBitmap(file);
+    if (file.size <= UPLOAD_TARGET_BYTES && Math.max(bitmap.width, bitmap.height) <= UPLOAD_MAX_EDGE_PX) {
+      bitmap.close();
+      return { file, note: "" };
+    }
+    const scale = Math.min(1, UPLOAD_MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+
+    let blob = null;
+    for (const quality of UPLOAD_JPEG_QUALITY_STEPS) {
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (blob && blob.size <= UPLOAD_TARGET_BYTES) break;
+    }
+    if (!blob || blob.size >= file.size) return { file, note: "" };
+    const name = (file.name || "upload").replace(/\.[^.]+$/, "") + ".jpg";
+    return {
+      file: new File([blob], name, { type: "image/jpeg" }),
+      note: "Photo compressed from " + formatBytes(file.size) + " to " + formatBytes(blob.size) + " before upload.",
+    };
+  } catch (e) {
+    // Older Android WebViews may lack createImageBitmap; send the original.
+    return { file, note: "" };
   }
-  return btoa(binary);
 }
-async function extractTextWithProvider(file) {
-  if (!OCR_PROXY_URL.trim()) {
-    const text = await file.text();
-    return { pages: [{ page: 1, text }], text, warnings: ["OCR proxy URL is not configured, so plain file text was used where available."] };
+function formatBytes(bytes) {
+  return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
+}
+
+// One call. The Worker runs OCR + extraction, falls back to its secondary
+// providers on its own, and returns the same schema either way.
+async function extractViaApi(file, agentMobile) {
+  const endpoint = apiUrl("/api/extract");
+  if (!endpoint) throw new Error("Deed upload is not switched on for this build.");
+  const form = new FormData();
+  form.append("file", file, file.name || "upload");
+  form.append("agentMobile", agentMobile || "");
+  let response;
+  try {
+    response = await fetch(endpoint, { method: "POST", body: form });
+  } catch (e) {
+    throw new Error("Could not reach the document reader. Check your network and try again.");
   }
-  const response = await fetch(OCR_PROXY_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      filename: file.name,
-      mimeType: file.type || "application/octet-stream",
-      contentBase64: await readFileAsBase64(file),
-    }),
-  });
-  if (!response.ok) throw new Error("OCR request failed with status " + response.status);
-  const payload = await response.json();
-  const pages = Array.isArray(payload.pages) ? payload.pages : [];
-  const text = payload.text || pages.map((page) => page.text || "").join("\n\n");
-  return { pages, text, warnings: Array.isArray(payload.warnings) ? payload.warnings : [] };
+  let payload = null;
+  try { payload = await response.json(); } catch (e) { /* handled below */ }
+  if (!response.ok) {
+    throw new Error((payload && payload.error) || "Document reading failed (" + response.status + ").");
+  }
+  if (!payload) throw new Error("The document reader returned an unreadable response.");
+  return normalizeExtractionShape(payload);
 }
-function buildGeminiPrompt(ocrResult) {
-  return [
-    "You extract structured data from Indian partnership deeds or partnership agreements.",
-    "Return JSON only. Do not wrap in markdown.",
-    "Rules:",
-    "1. Extract only facts explicitly present in the OCR text.",
-    "2. If a field is unclear, conflicting, or absent, leave value empty and add a warning when helpful.",
-    "3. Do not infer PAN, DOB, Aadhaar, POA, PEP, BO category, or MDF-specific fields.",
-    "4. partnershipRegType must be one of: registered, unregistered, or empty.",
-    "5. share should be a numeric percentage string only when directly present.",
-    "6. Include provenance using page numbers and short snippets.",
-    "Schema:",
-    JSON.stringify({
-      documentType: "partnership_deed",
-      sourceQuality: { ocrReadable: true, warnings: [] },
-      entity: {
-        firmName: { value: "", confidence: 0, source: [], warning: "" },
-        regAddress: { value: "", confidence: 0, source: [], warning: "" },
-        principalAddress: { value: "", confidence: 0, source: [], warning: "" },
-        partnershipRegType: { value: "", confidence: 0, source: [], warning: "" },
-        deedDate: { value: "", confidence: 0, source: [], warning: "" },
-      },
-      partners: [
-        {
-          name: { value: "", confidence: 0, source: [], warning: "" },
-          designation: { value: "", confidence: 0, source: [], warning: "" },
-          address: { value: "", confidence: 0, source: [], warning: "" },
-          share: { value: "", confidence: 0, source: [], warning: "" },
-        },
-      ],
-      unmappedNotes: [],
-    }),
-    "OCR TEXT:",
-    ocrResult.pages.map((page, index) => "Page " + (page.page || index + 1) + ":\n" + (page.text || "")).join("\n\n"),
-  ].join("\n");
-}
-async function extractStructuredDataWithGemini(ocrResult) {
-  if (!GEMINI_API_KEY.trim()) throw new Error("Gemini API key is not configured.");
-  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(GEMINI_MODEL) + ":generateContent?key=" + encodeURIComponent(GEMINI_API_KEY.trim());
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      generationConfig: { responseMimeType: "application/json" },
-      contents: [{ role: "user", parts: [{ text: buildGeminiPrompt(ocrResult) }] }],
-    }),
-  });
-  if (!response.ok) throw new Error("Gemini extraction failed with status " + response.status);
-  const payload = await response.json();
-  const text = payload && payload.candidates && payload.candidates[0] && payload.candidates[0].content && payload.candidates[0].content.parts && payload.candidates[0].content.parts[0] && payload.candidates[0].content.parts[0].text;
-  if (!text) throw new Error("Gemini returned an empty extraction response.");
-  return normalizeExtractionShape(JSON.parse(text));
-}
+
 function applyExtractionToState() {
   if (!state.extractionResult) return;
   const result = state.extractionResult;
@@ -586,20 +638,24 @@ function applyExtractionToState() {
   rerender();
 }
 async function handleExtractionUpload(event) {
-  const file = event.target && event.target.files && event.target.files[0];
-  if (!file) return;
-  state.extractionFileName = file.name;
+  const original = event.target && event.target.files && event.target.files[0];
+  if (event.target) event.target.value = "";
+  if (!original) return;
+  state.extractionFileName = original.name;
   state.extractionStatus = "running";
   state.extractionError = "";
   state.extractionWarnings = [];
   state.extractionApplied = false;
+  state.extractionRawText = "";
   rerender();
   try {
-    const ocrResult = await extractTextWithProvider(file);
-    state.extractionRawText = ocrResult.text || "";
-    const extractionResult = await extractStructuredDataWithGemini(ocrResult);
+    const { file, note } = await prepareUpload(original);
+    if (file.size > UPLOAD_MAX_BYTES) {
+      throw new Error("File is " + formatBytes(file.size) + ". Photograph one page at a time, or upload a smaller PDF.");
+    }
+    const extractionResult = await extractViaApi(file, state.agentMobile);
     state.extractionResult = extractionResult;
-    state.extractionWarnings = [...(ocrResult.warnings || []), ...(extractionResult.sourceQuality.warnings || [])];
+    state.extractionWarnings = [...(note ? [note] : []), ...(extractionResult.sourceQuality.warnings || [])];
     state.extractionStatus = "done";
     rerender();
   } catch (error) {
@@ -607,8 +663,6 @@ async function handleExtractionUpload(event) {
     state.extractionStatus = "error";
     state.extractionError = error.message || "Extraction failed.";
     rerender();
-  } finally {
-    if (event.target) event.target.value = "";
   }
 }
 function renderSuggestionCard(title, field) {
@@ -631,13 +685,16 @@ function renderPartnerSuggestionCard(partner, index) {
 }
 function partnershipUploadHTML() {
   if (!extractionEnabled()) return "";
+  // With no API URL configured there is nothing to upload to, so the card is
+  // hidden entirely rather than offering a control that always fails.
+  if (!API_BASE_URL) return "";
   const result = state.extractionResult;
   return '<div class="card"><div class="chd"><h2>\ud83e\udde0 Partnership Deed Upload Prefill</h2><span class="badge">Prototype</span></div><div class="cbd">' +
     '<div class="info-blue">Upload a partnership deed/agreement to prefill explicit facts only. Every value still needs manual review before document generation.</div>' +
     '<div class="upload-box">' +
-      '<div class="f"><label>Upload Partnership Deed / Agreement</label><input type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.webp" ' + on("change", handleExtractionUpload) + ' /><span class="hint">Configure <code>OCR_PROXY_URL</code> for OCR and <code>GEMINI_API_KEY</code> for extraction in <code>app.js</code>.</span></div>' +
+      '<div class="f"><label>Upload Partnership Deed / Agreement</label><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" ' + on("change", handleExtractionUpload) + ' /><span class="hint">Photograph the deed or upload a PDF. Photos are compressed on this phone before upload, so this works on a slow connection.</span></div>' +
       (state.extractionFileName ? '<div class="prefill-meta">Selected file: <strong>' + esc(state.extractionFileName) + '</strong></div>' : '') +
-      (state.extractionStatus === "running" ? '<div class="info-green" style="margin-top:10px"><span class="spin" style="border-top-color:#1f8f54;border-color:rgba(31,143,84,.25)"></span> Extracting deed text and mapping fields…</div>' : '') +
+      (state.extractionStatus === "running" ? '<div class="info-green" style="margin-top:10px"><span class="spin" style="border-top-color:#1f8f54;border-color:rgba(31,143,84,.25)"></span> Reading the deed and mapping fields… this can take up to a minute on a slow connection.</div>' : '') +
       (state.extractionStatus === "error" ? '<div class="error-box" style="margin-top:10px">' + esc(state.extractionError) + '</div>' : '') +
       (state.extractionWarnings.length ? '<div class="warn-box" style="margin-top:10px"><strong>Warnings:</strong><ul>' + state.extractionWarnings.map((warning) => '<li>' + esc(warning) + '</li>').join("") + '</ul></div>' : '') +
       (result ? '<div style="margin-top:12px"><div class="act" style="padding-top:0"><button type="button" class="btn btn-p" ' + on("click", applyExtractionToState) + '>Apply Suggested Prefill</button><button type="button" class="btn btn-s" ' + on("click", () => { resetExtractionState(); rerender(); }) + '>Clear Suggestions</button></div>' +
@@ -1261,7 +1318,7 @@ async function buildDocxArtifact(kind) {
 async function generateDocx(kind) {
   try {
     const artifact = await buildDocxArtifact(kind);
-    logToSheet();
+    logUsage();
     downloadBlob(artifact.blob, artifact.filename);
     showToast("Download started", "ok");
   } catch (e) { console.error(e); showToast("Error: " + e.message, "er"); }
@@ -1328,7 +1385,7 @@ function closePreview() {
 }
 async function generatePrint(kind) {
   if (await previewDocx(kind)) {
-    logToSheet();
+    logUsage();
     window.print();
   }
 }
@@ -1382,7 +1439,7 @@ async function downloadPdf(kind) {
     if (pdf.getNumberOfPages() > canvases.length) pdf.deletePage(1);
     await pdf.save(pdfName);
     exportRoot.remove();
-    logToSheet();
+    logUsage();
     showToast("PDF download started", "ok");
   } catch (error) {
     console.error(error);
@@ -1469,6 +1526,7 @@ function renderApp() {
 
   // ---- STEP 0: Agent + Merchant identification ----
   if (state.step === 0) {
+    const usageCount = readUsageLog().length;
     return '<div class="card"><div class="chd"><h2>\ud83d\udcf1 Agent & Merchant Details</h2><button class="reset-link" ' + on("click", () => resetSection("tracking")) + '>Reset section</button><span class="badge">Step 1 of 5</span></div><div class="cbd">' +
       '<div class="info-blue">Your mobile number is saved permanently on this device \u2014 you will not need to re-enter it next time. Merchant details reset for every new onboarding.</div>' +
       '<div class="g2">' +
@@ -1480,7 +1538,11 @@ function renderApp() {
         (state.merchantStatus === "new"
           ? '<div class="f s2"><label>Merchant Mobile Number *</label><input type="tel" inputmode="numeric" maxlength="10" class="' + (errs.merchantMobile ? "err" : "") + '" value="' + attr(state.merchantMobile) + '" ' + on("input", (e) => { state.merchantMobile = e.target.value.replace(/\D/g,"").slice(0,10); scheduleSave(); }) + ' />' + (errs.merchantMobile ? '<span class="err-msg">' + errs.merchantMobile + "</span>" : "") + "</div>"
           : '<div class="f s2"><label>Merchant ID *</label><input class="' + (errs.merchantId ? "err" : "") + '" value="' + attr(state.merchantId) + '" ' + on("input", (e) => { state.merchantId = e.target.value; scheduleSave(); }) + ' />' + (errs.merchantId ? '<span class="err-msg">' + errs.merchantId + "</span>" : "") + "</div>") +
-      "</div></div></div>" +
+      "</div>" +
+      '<div class="divider">Usage log</div>' +
+      '<div class="info-blue">' + (API_BASE_URL ? "Each generation is logged centrally and " : "Google Sheets logging is suspended. Each generation is ") + 'recorded on this device (' + usageCount + ' entr' + (usageCount === 1 ? "y" : "ies") + ') and can be exported as CSV.</div>' +
+      '<div class="act" style="padding-top:8px"><button type="button" class="btn btn-s" ' + on("click", downloadUsageLog) + '>Export usage log (CSV)</button><button type="button" class="btn btn-s" ' + on("click", clearUsageLog) + '>Clear log</button></div>' +
+      "</div></div>" +
       pageActions('', '<button class="btn btn-p" ' + on("click", () => { if (validateStep0()) { state.step = 1; rerender(); } }) + '>Next: Platform & Entity \u2192</button>');
   }
 
@@ -1635,19 +1697,20 @@ function renderApp() {
 }
 
 // ---- INIT ----
+try { sessionStorage.removeItem("docgen_ai_cfg_v1"); } catch (e) { /* ignore */ }
 loadAgent();
 loadMerchant();
 rerender();
 document.getElementById("previewClose").addEventListener("click", closePreview);
 document.getElementById("previewDownload").addEventListener("click", () => {
   if (!previewArtifact) return;
-  logToSheet();
+  logUsage();
   downloadBlob(previewArtifact.blob, previewArtifact.filename);
   showToast("Download started", "ok");
 });
 document.getElementById("previewPrint").addEventListener("click", () => {
   if (!previewArtifact) return;
-  logToSheet();
+  logUsage();
   window.print();
 });
 document.getElementById("previewPdf").addEventListener("click", () => downloadPdf());

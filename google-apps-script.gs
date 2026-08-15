@@ -1,6 +1,12 @@
 /**
  * Merchant Onboarding Document Generator — Sheet Logger
  * ------------------------------------------------------
+ * STATUS: SUSPENDED. The app no longer posts to this script — `SHEETS_URL`
+ * in app.js is blank, and usage is recorded locally in the browser instead
+ * (exportable as CSV from Step 1). This file is retained so logging can be
+ * switched back on later: redeploy the web app and paste the /exec URL into
+ * SHEETS_URL. Nothing else in app.js needs to change.
+ * ------------------------------------------------------
  * This Apps Script receives a log-only submission every time an agent
  * generates a document. It writes exactly ONE row per event with:
  *   Timestamp | Agent Mobile Number | Merchant (Display Name or Merchant ID) | New/Existing

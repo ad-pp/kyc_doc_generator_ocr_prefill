@@ -1,0 +1,6 @@
+# Local development only. Copy to .dev.vars and fill in.
+# .dev.vars is gitignored — never commit real keys.
+# Used by `npx wrangler dev`; production keys are set with `wrangler secret put`.
+GEMINI_API_KEY=
+OCRSPACE_API_KEY=
+GROQ_API_KEY=
