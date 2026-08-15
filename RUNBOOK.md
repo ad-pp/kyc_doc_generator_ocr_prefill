@@ -207,7 +207,7 @@ a minute after the merge, not after this push.
 Then confirm the log recorded it:
 
 ```bash
-npx wrangler kv key list --binding USAGE | grep '"log:'
+cd worker && npx wrangler kv key list --binding USAGE | grep '"log:'
 ```
 
 ---
@@ -217,6 +217,7 @@ npx wrangler kv key list --binding USAGE | grep '"log:'
 Same command as insertion — it overwrites:
 
 ```bash
+cd worker
 npx wrangler secret put GEMINI_API_KEY
 npx wrangler deploy
 ```
@@ -227,6 +228,7 @@ field: the next request simply uses the new key.
 To retire a provider entirely:
 
 ```bash
+cd worker
 npx wrangler secret delete GROQ_API_KEY
 npx wrangler deploy
 ```
@@ -245,8 +247,12 @@ revoking leaves the old key valid.
 **Watching it**
 
 ```bash
-npx wrangler tail                  # live request log
+cd worker && npx wrangler tail     # live request log
 ```
+
+Every `wrangler` command reads `worker/wrangler.toml` for the Worker name and
+its bindings, so run them from `worker/` — or name the Worker explicitly, e.g.
+`npx wrangler tail docgen-api`, which works from anywhere.
 
 The dashboard (Workers → docgen-api) shows requests, errors and CPU time. Each
 extraction is logged with the chain that served it, so a rising share of
@@ -255,6 +261,7 @@ extraction is logged with the chain that served it, so a rising share of
 **Reading the usage log**
 
 ```bash
+cd worker
 npx wrangler kv key list --binding USAGE
 npx wrangler kv key get --binding USAGE "log:2026-08-15T..."
 ```
