@@ -58,7 +58,7 @@ else
       printf "    Continue without KV? [y/N] "
       # Prefer the terminal (stdin may be a pipe), but never hard-fail on it.
       ANSWER="n"
-      if [ -r /dev/tty ]; then read -r ANSWER </dev/tty || ANSWER="n"; else read -r ANSWER || ANSWER="n"; fi
+      read -r ANSWER </dev/tty 2>/dev/null || read -r ANSWER 2>/dev/null || ANSWER="n"
       case "$ANSWER" in
         [yY]*) KV_OUT="";;
         *) die "Stopped. Paste the output above and we can work out the cause.";;
@@ -81,7 +81,15 @@ fi
 say "3/6  Storing the API keys"
 echo "    Paste each key when prompted. Input is hidden and stored encrypted"
 echo "    in Cloudflare — never written to this repo."
+# Existing secrets are left alone so a re-run doesn't ask for everything again.
+EXISTING_SECRETS="$($WRANGLER secret list 2>/dev/null || true)"
 for KEY in GEMINI_API_KEY OCRSPACE_API_KEY GROQ_API_KEY; do
+  case "$EXISTING_SECRETS" in
+    *"$KEY"*)
+      echo; echo "    $KEY  already stored — skipping."
+      echo "    (change it later with: npx wrangler secret put $KEY)"
+      continue;;
+  esac
   case "$KEY" in
     GEMINI_API_KEY)   echo; echo "    $KEY  (aistudio.google.com/apikey — primary chain)";;
     OCRSPACE_API_KEY) echo; echo "    $KEY  (ocr.space/ocrapi/freekey — fallback OCR)";;
@@ -94,15 +102,34 @@ for KEY in GEMINI_API_KEY OCRSPACE_API_KEY GROQ_API_KEY; do
 done
 
 say "4/6  Deploying the Worker"
-DEPLOY_OUT=""
-if ! DEPLOY_OUT="$($WRANGLER deploy 2>&1)"; then
-  echo "$DEPLOY_OUT"
-  die "Deploy failed (full output above)."
+# Stream through tee rather than capturing into a variable: the output stays
+# visible as it happens, and a failure is readable without extra handling.
+DEPLOY_LOG="$(mktemp "${TMPDIR:-/tmp}/docgen-deploy.XXXXXX")"
+DEPLOY_OK=0
+$WRANGLER deploy 2>&1 | tee "$DEPLOY_LOG" || DEPLOY_OK=1
+
+if grep -q 'register a workers.dev subdomain' "$DEPLOY_LOG"; then
+  ACCOUNT_URL="$(grep -oE 'https://dash\.cloudflare\.com/[a-f0-9]+/workers/onboarding' "$DEPLOY_LOG" | head -n 1 || true)"
+  printf "\n\033[33m    This Cloudflare account has no workers.dev subdomain yet.\033[0m\n"
+  printf "    Register one (free, once, ~30 seconds):\n\n"
+  printf "      %s\n\n" "${ACCOUNT_URL:-https://dash.cloudflare.com/ -> Workers & Pages -> set up a subdomain}"
+  printf "    Then re-run this script. Your keys are already stored and will be kept.\n\n"
+  rm -f "$DEPLOY_LOG"
+  exit 1
 fi
-echo "$DEPLOY_OUT" | tail -n 8
-API_URL="$(printf '%s' "$DEPLOY_OUT" | grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' | head -n 1 || true)"
+[ "$DEPLOY_OK" -eq 0 ] || { rm -f "$DEPLOY_LOG"; die "Deploy failed (full output above)."; }
+
+API_URL="$(grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' "$DEPLOY_LOG" | head -n 1 || true)"
+rm -f "$DEPLOY_LOG"
 [ -n "$API_URL" ] || die "Deploy finished but no workers.dev URL was found. Copy it from the output above into API_BASE_URL in app.js."
 echo "    Live at: $API_URL"
+
+if ! grep -q '^\[\[kv_namespaces\]\]' "$ROOT/worker/wrangler.toml"; then
+  warn "No KV namespace is bound: per-day caps and the central usage log are off."
+  warn "Extraction and document generation are unaffected. To add it later:"
+  warn "  npx wrangler kv namespace create USAGE"
+  warn "  node tools/apply-config.mjs --kv-id <id> && npx wrangler deploy"
+fi
 
 say "5/6  Checking both provider chains"
 HEALTH="$(curl -fsS "$API_URL/api/health" || true)"
