@@ -2,6 +2,13 @@ name = "docgen-api"
 main = "src/index.js"
 compatibility_date = "2026-01-01"
 
+# Publish to https://<name>.<your-subdomain>.workers.dev.
+# Declaring it here means `wrangler deploy` enables the route itself. Without
+# it, a Worker first deployed before the account had a workers.dev subdomain
+# stays permanently unrouted ("No URLs enabled") even after the subdomain is
+# registered, because nothing ever turns the route on.
+workers_dev = true
+
 [vars]
 # Comma-separated list of exact origins allowed to call this Worker.
 # Origin means scheme + host only, with no path and no trailing slash.

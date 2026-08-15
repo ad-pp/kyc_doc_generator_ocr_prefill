@@ -108,7 +108,7 @@ DEPLOY_LOG="$(mktemp "${TMPDIR:-/tmp}/docgen-deploy.XXXXXX")"
 DEPLOY_OK=0
 $WRANGLER deploy 2>&1 | tee "$DEPLOY_LOG" || DEPLOY_OK=1
 
-if grep -q 'register a workers.dev subdomain' "$DEPLOY_LOG"; then
+if grep -qE 'register a workers\.dev subdomain|workers\.dev subdomain before publishing' "$DEPLOY_LOG"; then
   ACCOUNT_URL="$(grep -oE 'https://dash\.cloudflare\.com/[a-f0-9]+/workers/onboarding' "$DEPLOY_LOG" | head -n 1 || true)"
   printf "\n\033[33m    This Cloudflare account has no workers.dev subdomain yet.\033[0m\n"
   printf "    Register one (free, once, ~30 seconds):\n\n"
@@ -121,6 +121,11 @@ fi
 
 API_URL="$(grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' "$DEPLOY_LOG" | head -n 1 || true)"
 rm -f "$DEPLOY_LOG"
+if [ -z "$API_URL" ]; then
+  warn "The Worker uploaded but has no public URL (the dashboard shows"
+  warn "\"No URLs enabled\"). Confirm workers_dev = true in wrangler.toml,"
+  warn "then re-run. Enabling it needs a deploy, not just a dashboard toggle."
+fi
 [ -n "$API_URL" ] || die "Deploy finished but no workers.dev URL was found. Copy it from the output above into API_BASE_URL in app.js."
 echo "    Live at: $API_URL"
 
