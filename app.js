@@ -21,13 +21,15 @@ const API_BASE_URL = "https://docgen-api.braver-cygnet-0j.workers.dev";
 // Photos from a phone camera are 4-8 MB. Downscaling before upload keeps the
 // request small on a 3G connection and well inside the Worker's size cap,
 // while staying legible enough for OCR.
-// 1600px still resolves 10pt deed text comfortably once the page fills the
-// frame, and it keeps the encode fast on a low-end phone.
-const UPLOAD_MAX_EDGE_PX = 1600;
-// Below the fallback OCR service's ~1 MB free-plan cap, with headroom for
-// multipart overhead.
-const UPLOAD_TARGET_BYTES = 900 * 1024;
-const UPLOAD_JPEG_QUALITY_STEPS = [0.8, 0.68, 0.56, 0.45];
+// 2000px resolves small print on a deed comfortably once the page fills the
+// frame, while keeping the encode fast on a low-end phone.
+const UPLOAD_MAX_EDGE_PX = 2000;
+// Both providers read multi-megabyte documents, so this is sized for the
+// upload itself — small enough to send over 3G, large enough to stay legible.
+// It was previously a third of this, purely to fit an OCR service's 1 MB
+// free-plan cap; that service is gone and the quality constraint went with it.
+const UPLOAD_TARGET_BYTES = 2800 * 1024;
+const UPLOAD_JPEG_QUALITY_STEPS = [0.85, 0.75, 0.62, 0.5];
 const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
 
 const LS_MERCHANT = "docgen_merchant_v1";   // clears per onboarding

@@ -39,8 +39,7 @@ Create these first; all are free and none need a card.
 |---|---|---|---|
 | 1 | Cloudflare | Workers + KV | dash.cloudflare.com/sign-up |
 | 2 | Google AI Studio | `GEMINI_API_KEY` — primary chain | aistudio.google.com/apikey |
-| 3 | OCR.space | `OCRSPACE_API_KEY` — secondary OCR (free plan is enough) | ocr.space/ocrapi/freekey |
-| 4 | Groq | `GROQ_API_KEY` — secondary LLM | console.groq.com/keys |
+| 3 | OpenRouter | `OPENROUTER_API_KEY` — fallback chain | openrouter.ai/keys |
 
 The old Gemini key was exposed in git history and has been revoked. Generate a
 **new** one at step 2 — do not reuse it.
@@ -77,8 +76,8 @@ bash worker/setup.sh
 >
 > Once PR #1 is merged, drop the `-b` and use `main`.
 
-You will be asked for exactly three things — the Gemini, OCR.space and Groq
-keys — plus one browser approval for the Cloudflare login. The script does the
+You will be asked for exactly two keys — Gemini and OpenRouter — plus one
+browser approval for the Cloudflare login. The script does the
 rest: creates the KV namespace and writes its id into `wrangler.toml`, stores
 each key as an encrypted secret, deploys the Worker, checks both provider
 chains, then points `app.js` at the deployed URL and bumps the cache version.
@@ -128,8 +127,7 @@ it and extraction still works — you just lose caps and central logging.
 
 ```bash
 npx wrangler secret put GEMINI_API_KEY
-npx wrangler secret put OCRSPACE_API_KEY
-npx wrangler secret put GROQ_API_KEY
+npx wrangler secret put OPENROUTER_API_KEY
 ```
 
 Each prompts for the value and hides it as you paste. Secrets are encrypted at
@@ -229,7 +227,7 @@ To retire a provider entirely:
 
 ```bash
 cd worker
-npx wrangler secret delete GROQ_API_KEY
+npx wrangler secret delete OPENROUTER_API_KEY
 npx wrangler deploy
 ```
 
@@ -256,7 +254,7 @@ its bindings, so run them from `worker/` — or name the Worker explicitly, e.g.
 
 The dashboard (Workers → docgen-api) shows requests, errors and CPU time. Each
 extraction is logged with the chain that served it, so a rising share of
-`ocrspace-groq` means the primary is degraded or out of quota.
+`openrouter` means the primary is degraded or out of quota.
 
 **Reading the usage log**
 
@@ -277,8 +275,7 @@ Agents can also export their own device log as CSV from Step 1.
 | Per agent | 40 extractions/day | Configurable in `wrangler.toml` |
 | Per IP | 120 extractions/day | Stops one connection burning the pool |
 | Upload | 8 MB | Photos are compressed on the phone first |
-| OCR.space free plan | 1 MB/file, 3 PDF pages, 25,000/month, 500/day per IP | Engine 3 has its own 2,500/month quota; exhausting it retries on Engine 2 |
-| Gemini / Groq free tiers | Provider-set, and they change | Exhausting the primary triggers automatic failover to the secondary |
+| Gemini / OpenRouter free tiers | Provider-set, and they change | Exhausting the primary triggers automatic failover to the secondary |
 
 Raising a cap is a `wrangler.toml` edit plus `npx wrangler deploy`.
 

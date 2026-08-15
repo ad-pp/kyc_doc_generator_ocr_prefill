@@ -1,6 +1,15 @@
-import { buildTextPrompt, buildVisionPrompt } from "./prompt.js";
+import { buildVisionPrompt } from "./prompt.js";
 
-// Models sometimes fence their JSON despite being told not to.
+// Both chains read the document directly with a multimodal model. No OCR
+// service sits in front of either one.
+//
+// This is deliberate. A dedicated free-tier OCR API caps file size and page
+// count (OCR.space free: 1 MB, 3 pages), and a real partnership deed breaches
+// both — so the fallback could never handle the documents that matter, and
+// only failed on the days the primary was already down. A model that reads the
+// PDF itself has neither limit, and tends to do better on phone photos, where
+// skew and shadow cost classical OCR more than they cost a vision model.
+
 export function parseModelJson(text, label) {
   const cleaned = String(text || "")
     .trim()
@@ -23,6 +32,10 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+async function fileToBase64(file) {
+  return bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+}
+
 async function withTimeout(promise, ms, label) {
   let timer;
   try {
@@ -37,12 +50,19 @@ async function withTimeout(promise, ms, label) {
   }
 }
 
-// ---- PRIMARY CHAIN: Gemini reads the document directly ----------------------
-// One call does both OCR and extraction, which is fewer moving parts and
-// noticeably better than OCR-then-LLM on poor phone-camera scans.
+// Read as much of the provider's error body as is useful. A bare status code
+// rarely says whether the cause is the key, the model name, or the file.
+async function describeFailure(response, label) {
+  let body = "";
+  try {
+    body = (await response.text()).slice(0, 300).replace(/\s+/g, " ").trim();
+  } catch (e) { /* body already consumed or absent */ }
+  return new Error(label + " failed with status " + response.status + (body ? ": " + body : ""));
+}
+
+// ---- PRIMARY: Gemini reads the document directly ---------------------------
 export async function extractWithGeminiVision(file, env) {
   const model = env.GEMINI_MODEL || "gemini-2.5-flash";
-  const bytes = new Uint8Array(await file.arrayBuffer());
   const response = await withTimeout(
     fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
       method: "POST",
@@ -54,141 +74,79 @@ export async function extractWithGeminiVision(file, env) {
             role: "user",
             parts: [
               { text: buildVisionPrompt() },
-              { inline_data: { mime_type: file.type || "application/pdf", data: bytesToBase64(bytes) } },
+              { inline_data: { mime_type: file.type || "application/pdf", data: await fileToBase64(file) } },
             ],
           },
         ],
       }),
     }),
-    45000,
+    60000,
     "Gemini"
   );
-  if (!response.ok) throw new Error("Gemini failed with status " + response.status);
+  if (!response.ok) throw await describeFailure(response, "Gemini");
   const payload = await response.json();
   const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned an empty response.");
+  if (!text) {
+    // A blocked or truncated response has no text part; say which.
+    const reason = payload?.candidates?.[0]?.finishReason || payload?.promptFeedback?.blockReason || "no text in response";
+    throw new Error("Gemini returned no output (" + reason + ").");
+  }
   return parseModelJson(text, "Gemini");
 }
 
-// ---- SECONDARY CHAIN: dedicated OCR, then a different LLM ------------------
-// Deliberately a different vendor at both stages, so one provider's outage or
-// quota exhaustion cannot take down both attempts.
-// Tuned against https://ocr.space/ocrapi#ocrengine for a free-plan key.
-//
-// Engine 3 is the primary: it has the highest accuracy, recognises tables and
-// returns them as Markdown, which matters here because partner name/share
-// tables are exactly what we extract. Its free quota is 2,500 conversions a
-// month, separate from the 25,000 shared by Engines 1/2 — ample for a path
-// that only runs when the Gemini primary has already failed.
-//
-// Engine 2 is the fallback: the documented all-rounder, strong on noisy photo
-// backgrounds and rotated text, drawing on the larger 25,000 pool.
-//
-// Every knob is a wrangler var, so this can be retuned without a code change.
-const ENGINE_SUPPORTS_AUTO_LANGUAGE = ["2", "3"];
+// ---- SECONDARY: OpenRouter, a different vendor, also multimodal ------------
+// OpenRouter fronts many models behind one OpenAI-compatible endpoint, so
+// switching the fallback model — when a free one is retired, rate-limited, or
+// simply reads deeds better — is an OPENROUTER_MODEL change, not a code change.
+export async function extractWithOpenRouter(file, env) {
+  const model = env.OPENROUTER_MODEL || "google/gemma-3-27b-it:free";
+  const dataUrl = "data:" + (file.type || "application/pdf") + ";base64," + (await fileToBase64(file));
+  const isPdf = (file.type || "").includes("pdf");
 
-function ocrSpaceForm(file, env, engine) {
-  const form = new FormData();
-  form.append("file", file, file.name || "upload");
-  // Engines 2 and 3 auto-detect; Engine 1 has no "auto" and needs a real code.
-  const configured = env.OCRSPACE_LANGUAGE || "auto";
-  const language = configured === "auto" && !ENGINE_SUPPORTS_AUTO_LANGUAGE.includes(String(engine))
-    ? "eng"
-    : configured;
-  form.append("language", language);
-  form.append("isOverlayRequired", "false");
-  // The API defaults scale to false; enabling it upscales internally and the
-  // docs call out a significant gain on low-resolution scans.
-  form.append("scale", "true");
-  form.append("detectOrientation", "true"); // deed photographed sideways
-  // Engine 3 already emits Markdown tables, so forcing line-by-line output is
-  // only useful on the other engines or for heavily tabular deeds.
-  form.append("isTable", env.OCRSPACE_TABLE || "false");
-  form.append("OCREngine", String(engine));
-  return form;
-}
+  const content = [{ type: "text", text: buildVisionPrompt() }];
+  if (isPdf) {
+    // PDFs go as a file part; OpenRouter's parser plugin turns them into
+    // something the model can read. Engine is configurable because the
+    // available parsers and their costs change.
+    content.push({ type: "file", file: { filename: file.name || "document.pdf", file_data: dataUrl } });
+  } else {
+    content.push({ type: "image_url", image_url: { url: dataUrl } });
+  }
 
-async function callOcrSpace(file, env, engine) {
+  const body = {
+    model,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content }],
+  };
+  if (isPdf) {
+    body.plugins = [{ id: "file-parser", pdf: { engine: env.OPENROUTER_PDF_ENGINE || "pdf-text" } }];
+  }
+
   const response = await withTimeout(
-    fetch("https://api.ocr.space/parse/image", {
+    fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { apikey: env.OCRSPACE_API_KEY },
-      body: ocrSpaceForm(file, env, engine),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + env.OPENROUTER_API_KEY,
+        // OpenRouter attributes traffic by these; harmless if unset.
+        "HTTP-Referer": (env.ALLOWED_ORIGINS || "").split(",")[0].trim(),
+        "X-Title": "Merchant Onboarding Document Generator",
+      },
+      body: JSON.stringify(body),
     }),
-    40000,
-    "OCR.space"
+    60000,
+    "OpenRouter"
   );
-  if (!response.ok) throw new Error("OCR.space failed with status " + response.status);
+  if (!response.ok) throw await describeFailure(response, "OpenRouter");
   const payload = await response.json();
-
-  // OCRExitCode: 1 success, 2 partial success, 3 failed, 4 fatal.
-  const exitCode = Number(payload.OCRExitCode || 0);
-  if (payload.IsErroredOnProcessing || exitCode >= 3) {
-    const message = [payload.ErrorMessage, payload.ErrorDetails]
-      .flat()
-      .filter(Boolean)
-      .join(" ");
-    // The free plan reads only the first 3 pages of a PDF, which is the most
-    // likely cause of a PDF failing here and is not obvious from the raw error.
-    const hint = (file.type || "").includes("pdf") ? " (free plan reads at most 3 PDF pages)" : "";
-    throw new Error("OCR.space error: " + (message || "exit code " + exitCode) + hint);
-  }
-  const pages = (payload.ParsedResults || []).map((result, index) => ({
-    page: index + 1,
-    text: result.ParsedText || "",
-  }));
-  const text = pages.map((page) => page.text).join("\n\n").trim();
-  if (!text) throw new Error("OCR.space found no readable text.");
-  return { pages, text, partial: exitCode === 2 };
-}
-
-export async function ocrWithOcrSpace(file, env) {
-  // Free plans cap upload size well below the Worker's own limit, and an
-  // oversized file fails with a message the agent cannot act on.
-  const maxKb = Number(env.OCRSPACE_MAX_KB || 1024);
-  if (file.size > maxKb * 1024) {
-    throw new Error("Scan is " + Math.round(file.size / 1024) + " KB, above the OCR service limit of " + maxKb + " KB.");
-  }
-  const engine = (env.OCRSPACE_ENGINE || "3").trim();
-  // ?? not ||, so setting the var to "" genuinely disables the retry.
-  const fallback = (env.OCRSPACE_ENGINE_FALLBACK ?? "2").trim();
-  try {
-    return await callOcrSpace(file, env, engine);
-  } catch (error) {
-    // Engine availability differs by plan, and one engine can reject a file
-    // the other reads. Trying the alternate costs one call and often works.
-    if (!fallback || fallback === engine) throw error;
-    console.log("ocr engine " + engine + " failed (" + error.message + "), retrying with " + fallback);
-    return callOcrSpace(file, env, fallback);
-  }
-}
-
-export async function extractWithGroq(ocrResult, env) {
-  const model = env.GROQ_MODEL || "llama-3.3-70b-versatile";
-  const response = await withTimeout(
-    fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.GROQ_API_KEY },
-      body: JSON.stringify({
-        model,
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content: buildTextPrompt(ocrResult) }],
-      }),
-    }),
-    40000,
-    "Groq"
-  );
-  if (!response.ok) throw new Error("Groq failed with status " + response.status);
-  const payload = await response.json();
+  if (payload?.error) throw new Error("OpenRouter error: " + (payload.error.message || JSON.stringify(payload.error)));
   const text = payload?.choices?.[0]?.message?.content;
-  if (!text) throw new Error("Groq returned an empty response.");
-  return parseModelJson(text, "Groq");
+  if (!text) throw new Error("OpenRouter returned an empty response.");
+  return parseModelJson(text, "OpenRouter");
 }
 
 export async function runSecondaryChain(file, env) {
-  if (!env.OCRSPACE_API_KEY) throw new Error("Secondary OCR is not configured.");
-  if (!env.GROQ_API_KEY) throw new Error("Secondary LLM is not configured.");
-  const ocrResult = await ocrWithOcrSpace(file, env);
-  return extractWithGroq(ocrResult, env);
+  if (!env.OPENROUTER_API_KEY) throw new Error("no OpenRouter key configured");
+  return extractWithOpenRouter(file, env);
 }

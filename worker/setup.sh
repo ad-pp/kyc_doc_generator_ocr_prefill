@@ -83,7 +83,7 @@ echo "    Paste each key when prompted. Input is hidden and stored encrypted"
 echo "    in Cloudflare — never written to this repo."
 # Existing secrets are left alone so a re-run doesn't ask for everything again.
 EXISTING_SECRETS="$($WRANGLER secret list 2>/dev/null || true)"
-for KEY in GEMINI_API_KEY OCRSPACE_API_KEY GROQ_API_KEY; do
+for KEY in GEMINI_API_KEY OPENROUTER_API_KEY; do
   case "$EXISTING_SECRETS" in
     *"$KEY"*)
       echo; echo "    $KEY  already stored — skipping."
@@ -92,8 +92,7 @@ for KEY in GEMINI_API_KEY OCRSPACE_API_KEY GROQ_API_KEY; do
   esac
   case "$KEY" in
     GEMINI_API_KEY)   echo; echo "    $KEY  (aistudio.google.com/apikey — primary chain)";;
-    OCRSPACE_API_KEY) echo; echo "    $KEY  (ocr.space/ocrapi/freekey — fallback OCR)";;
-    GROQ_API_KEY)     echo; echo "    $KEY  (console.groq.com/keys — fallback LLM)";;
+    OPENROUTER_API_KEY) echo; echo "    $KEY  (openrouter.ai/keys — fallback chain)";;
   esac
   if ! $WRANGLER secret put "$KEY"; then
     warn "Storing $KEY failed. Re-run this script, or set it later with:"
@@ -161,7 +160,7 @@ case "$HEALTH" in
 esac
 case "$HEALTH" in
   *'"secondary":true'*) ;;
-  *) warn "Secondary chain is NOT configured — re-run and check the OCR.space and Groq keys.";;
+  *) warn "Secondary chain is NOT configured — re-run and check the OpenRouter key.";;
 esac
 
 say "6/6  Wiring the app to the Worker"

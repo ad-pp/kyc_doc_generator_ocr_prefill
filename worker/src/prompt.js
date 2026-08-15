@@ -38,20 +38,10 @@ const RULES = [
   JSON.stringify(EXTRACTION_SCHEMA),
 ];
 
-// Primary chain: the model reads the document image/PDF directly.
+// Both chains read the document image/PDF directly; there is no OCR stage.
 export function buildVisionPrompt() {
   return RULES.concat([
     "The document pages are attached. Read them and populate the schema.",
     "Set sourceQuality.ocrReadable to false if the scan is too poor to read reliably.",
-  ]).join("\n");
-}
-
-// Secondary chain: a dedicated OCR engine has already produced page text.
-export function buildTextPrompt(ocrResult) {
-  return RULES.concat([
-    "OCR TEXT:",
-    ocrResult.pages
-      .map((page, index) => "Page " + (page.page || index + 1) + ":\n" + (page.text || ""))
-      .join("\n\n"),
   ]).join("\n");
 }

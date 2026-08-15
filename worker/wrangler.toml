@@ -16,26 +16,15 @@ workers_dev = true
 # https://ad-pp.github.io/kyc_doc_generator_ocr_prefill/ has the origin below.
 ALLOWED_ORIGINS = "https://ad-pp.github.io"
 GEMINI_MODEL = "gemini-2.5-flash"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# Fallback model, reached only when Gemini fails. OpenRouter fronts many
+# models behind one endpoint, so changing this line changes the fallback —
+# no code change. Must be a model that accepts images/PDFs.
+# Check current free models and their limits at https://openrouter.ai/models
+OPENROUTER_MODEL = "google/gemma-3-27b-it:free"
+# Parser used for PDF inputs on OpenRouter. "pdf-text" suits digital PDFs;
+# switch to an OCR engine for scanned ones (see OpenRouter's file-parser docs).
+OPENROUTER_PDF_ENGINE = "pdf-text"
 
-# OCR.space tuning — see https://ocr.space/ocrapi#ocrengine
-# Engine 3: highest accuracy, tables returned as Markdown, handwriting.
-#           Free quota 2,500/month, separate from the Engine 1/2 pool.
-# Engine 2: documented all-rounder, strong on noisy photos and rotated text.
-#           Shares the free 25,000/month pool with Engine 1.
-# The Worker tries OCRSPACE_ENGINE and retries once with the fallback, so
-# exhausting the small Engine 3 quota degrades to Engine 2 automatically.
-OCRSPACE_ENGINE = "3"
-OCRSPACE_ENGINE_FALLBACK = "2"
-# "auto" enables language auto-detection on Engines 2/3; the Worker
-# substitutes "eng" automatically if a call lands on Engine 1, which has no
-# auto mode. Use a 3-letter code (eng, hin, ...) to pin one language.
-OCRSPACE_LANGUAGE = "auto"
-# Forces line-by-line output. Engine 3 already returns Markdown tables, so
-# leave false unless you pin an engine and your deeds are heavily tabular.
-OCRSPACE_TABLE = "false"
-# Free-plan file size cap is 1 MB. The browser compresses below this first.
-OCRSPACE_MAX_KB = "1024"
 DAILY_LIMIT_PER_AGENT = "40"
 DAILY_LIMIT_PER_IP = "120"
 
@@ -50,5 +39,4 @@ id = "f67d5be25eaa46ce95c79df3c3959b93"
 
 # Secrets are NOT set here — this file is committed. Set them once, encrypted:
 #   npx wrangler secret put GEMINI_API_KEY
-#   npx wrangler secret put OCRSPACE_API_KEY
-#   npx wrangler secret put GROQ_API_KEY
+#   npx wrangler secret put OPENROUTER_API_KEY

@@ -116,7 +116,7 @@ async function handleExtract(request, env, ctx) {
   if (!result) {
     try {
       result = await runSecondaryChain(file, env);
-      provider = "ocrspace-groq";
+      provider = "openrouter";
     } catch (error) {
       failures.push("secondary: " + error.message);
       console.log("secondary failed: " + error.message);
@@ -188,7 +188,7 @@ export default {
         {
           ok: true,
           primary: Boolean(env.GEMINI_API_KEY),
-          secondary: Boolean(env.OCRSPACE_API_KEY && env.GROQ_API_KEY),
+          secondary: Boolean(env.OPENROUTER_API_KEY),
         },
         200,
         request,
