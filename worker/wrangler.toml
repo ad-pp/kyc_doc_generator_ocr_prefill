@@ -15,18 +15,19 @@ workers_dev = true
 # GitHub Pages project sites are served from the account origin, so
 # https://ad-pp.github.io/kyc_doc_generator_ocr_prefill/ has the origin below.
 ALLOWED_ORIGINS = "https://ad-pp.github.io"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.7-flash"
 # Fallback model, reached only when Gemini fails. OpenRouter fronts many
 # models behind one endpoint, so changing this line changes the fallback —
 # no code change. Must be a model that accepts images/PDFs.
 # Check current free models and their limits at https://openrouter.ai/models
-OPENROUTER_MODEL = "google/gemma-3-27b-it:free"
+OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
 # Parser used for PDF inputs on OpenRouter. "pdf-text" suits digital PDFs;
 # switch to an OCR engine for scanned ones (see OpenRouter's file-parser docs).
 OPENROUTER_PDF_ENGINE = "pdf-text"
-# Last-resort tier. Groq's vision models take images, not PDFs, so this tier
-# covers photo uploads only — which is what agents in the field mostly produce.
+# Last-resort tier, images only — Groq's vision models do not take PDFs.
 # Must be a vision-capable model: https://console.groq.com/docs/models
+# If the account has no vision model, leave GROQ_API_KEY unset and the tier is
+# skipped; `node tools/check-providers.mjs` reports which models are available.
 GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 DAILY_LIMIT_PER_AGENT = "40"

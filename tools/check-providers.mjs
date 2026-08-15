@@ -62,16 +62,20 @@ const MODEL_LISTS = {
       (data.models || [])
         .filter((m) => (m.supportedGenerationMethods || []).includes("generateContent"))
         .map((m) => ({ id: (m.name || "").replace(/^models\//, ""), note: m.displayName || "" })),
-    // Prefer a current, fast, multimodal model over preview or legacy ones.
-    // Version must handle both "2.5" and a bare "3", or a newer generation
-    // sorts below an older one and gets copy-pasted as the fix.
+    // Anchor the version to the "gemini-N.N" prefix. Matching any "-<digits>"
+    // pulls the date out of ids like deep-research-pro-preview-12-2025 and
+    // ranks it as generation 12 — first place, and completely wrong.
     rank: (id) => {
-      const version = id.match(/-(\d+)(?:\.(\d+))?/);
-      const generation = version ? Number(version[1]) * 10 + Number(version[2] || 0) : 0;
+      if (!/^gemini-\d/.test(id)) return 900; // not a general Gemini model
+      const version = id.match(/^gemini-(\d+)(?:\.(\d+))?/);
+      const generation = Number(version[1]) * 10 + Number(version[2] || 0);
       return (
         (/flash/.test(id) ? -40 : 0) +
-        (/lite/.test(id) ? 10 : 0) +
-        (/preview|exp|thinking|tts|image|embedding|learnlm|gemma/.test(id) ? 60 : 0) -
+        (/lite/.test(id) ? 25 : 0) +
+        // Preview, EAP and confidential builds are not something to depend on.
+        (/preview|exp\b|eap|confidential|thinking|tts|image-gen|embedding|learnlm/.test(id) ? 300 : 0) +
+        // Narrow single-purpose builds, e.g. video-understanding.
+        (/understanding|research|native-audio|live/.test(id) ? 300 : 0) -
         generation * 2
       );
     },
@@ -83,15 +87,30 @@ const MODEL_LISTS = {
       (data.data || [])
         .filter((m) => (m.architecture?.input_modalities || []).includes("image"))
         .map((m) => ({ id: m.id, note: m.name || "" })),
-    // Only :free slugs matter here; the paid ones are not what this is for.
-    rank: (id) => (/:free$/.test(id) ? -100 : 500),
+    // Free slugs only, and prefer a general-purpose instruction model. A
+    // safety classifier or a note-taker is image-capable but useless for
+    // reading a deed, and would otherwise win on list order alone.
+    rank: (id) => {
+      const size = id.match(/(\d+)b/i);
+      return (
+        (/:free$/.test(id) ? -100 : 900) +
+        (/safety|guard|moderation|classif|embed|rerank|note|tts|whisper|coder|code-/i.test(id) ? 400 : 0) +
+        (/-it:|instruct|vl\b|vision|omni/i.test(id) ? -60 : 0) -
+        // Bigger models read documents better; this is a tie-breaker only.
+        Math.min(Number(size ? size[1] : 0), 90) / 3
+      );
+    },
   },
   groq: {
     url: "https://api.groq.com/openai/v1/models",
     headers: (env) => ({ Authorization: "Bearer " + env.GROQ_API_KEY }),
-    // Groq's list does not flag vision, so match on name.
-    parse: (data) => (data.data || []).map((m) => ({ id: m.id, note: m.owned_by || "" })),
-    rank: (id) => (/vision|scout|maverick|llava|vl/i.test(id) ? -50 : 500),
+    // Groq's list does not flag modality, so vision has to be matched by name.
+    // Anything else is text-only and cannot serve this tier at all.
+    parse: (data) =>
+      (data.data || [])
+        .filter((m) => /vision|scout|maverick|llava|[-/]vl\b|omni/i.test(m.id))
+        .map((m) => ({ id: m.id, note: m.owned_by || "" })),
+    rank: (id) => (/guard|safety|prompt/i.test(id) ? 400 : 0) - (id.match(/(\d+)b/i) ? 1 : 0),
   },
 };
 
@@ -102,7 +121,7 @@ async function suggestModels(tierName, env) {
     const response = await fetch(spec.url, { headers: spec.headers(env) });
     if (!response.ok) return [];
     const candidates = spec.parse(await response.json());
-    return candidates.sort((a, b) => spec.rank(a.id) - spec.rank(b.id)).slice(0, 6);
+    return candidates.sort((a, b) => spec.rank(a.id) - spec.rank(b.id)).slice(0, 8);
   } catch (e) {
     return [];
   }
@@ -140,6 +159,11 @@ async function main() {
       // never available to this key. Ask the provider what it will accept.
       if (/404|not found|no longer available|does not exist|unavailable for free/i.test(error.message)) {
         failed.suggestions = await suggestModels(tier.name, env);
+        if (!failed.suggestions.length) {
+          console.log(`  ${" ".repeat(11)}        no usable model found for this tier on this key.`);
+          console.log(`  ${" ".repeat(11)}        Groq needs a vision model; if it has none, drop the tier:`);
+          console.log(`  ${" ".repeat(11)}          npx wrangler secret delete ${tier.keyVar}`);
+        }
         if (failed.suggestions.length) {
           console.log(`  ${" ".repeat(11)}        models this key CAN use:`);
           for (const candidate of failed.suggestions) {

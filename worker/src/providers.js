@@ -62,7 +62,7 @@ async function describeFailure(response, label) {
 
 // ---- PRIMARY: Gemini reads the document directly ---------------------------
 export async function extractWithGeminiVision(file, env) {
-  const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.7-flash";
   const response = await withTimeout(
     fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
       method: "POST",
@@ -99,7 +99,7 @@ export async function extractWithGeminiVision(file, env) {
 // switching the fallback model — when a free one is retired, rate-limited, or
 // simply reads deeds better — is an OPENROUTER_MODEL change, not a code change.
 export async function extractWithOpenRouter(file, env) {
-  const model = env.OPENROUTER_MODEL || "google/gemma-3-27b-it:free";
+  const model = env.OPENROUTER_MODEL || "google/gemma-4-31b-it:free";
   const dataUrl = "data:" + (file.type || "application/pdf") + ";base64," + (await fileToBase64(file));
   const isPdf = (file.type || "").includes("pdf");
 
