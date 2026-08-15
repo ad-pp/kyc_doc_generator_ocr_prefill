@@ -137,8 +137,24 @@ if ! grep -q '^\[\[kv_namespaces\]\]' "$ROOT/worker/wrangler.toml"; then
 fi
 
 say "5/6  Checking both provider chains"
-HEALTH="$(curl -fsS "$API_URL/api/health" || true)"
-echo "    $HEALTH"
+# A workers.dev route enabled for the first time needs a few seconds to
+# propagate, and returns 404 until it does. Retry before believing the answer.
+HEALTH=""
+for ATTEMPT in 1 2 3 4 5 6; do
+  HEALTH="$(curl -fsS --max-time 10 "$API_URL/api/health" 2>/dev/null || true)"
+  case "$HEALTH" in
+    *'"ok"'*) break;;
+  esac
+  [ "$ATTEMPT" -lt 6 ] || break
+  echo "    Route not answering yet, retrying ($ATTEMPT/6)..."
+  sleep 5
+done
+echo "    ${HEALTH:-<no response>}"
+case "$HEALTH" in
+  "") warn "No response from $API_URL/api/health."
+      warn "A brand-new workers.dev route can take a minute. Check again with:"
+      warn "  curl -i $API_URL/api/health";;
+esac
 case "$HEALTH" in
   *'"primary":true'*) ;;
   *) warn "Primary chain is NOT configured — re-run and check the Gemini key.";;
