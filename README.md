@@ -63,9 +63,13 @@ the upload returns a clear message; document generation is never blocked.
 
 ### Deploying the API Worker (one time)
 
+Full step-by-step instructions, including key insertion, rotation and
+monitoring, are in **[RUNBOOK.md](RUNBOOK.md)**. The short version:
+
 ```bash
 cd worker
-npx wrangler kv namespace create USAGE     # paste the id into wrangler.toml
+npx wrangler login
+npx wrangler kv namespace create USAGE     # uncomment the block in wrangler.toml, paste the id
 npx wrangler secret put GEMINI_API_KEY     # primary
 npx wrangler secret put OCRSPACE_API_KEY   # secondary OCR
 npx wrangler secret put GROQ_API_KEY       # secondary LLM
@@ -76,10 +80,12 @@ Then set `ALLOWED_ORIGINS` in `wrangler.toml` to the exact origin the app is
 served from, and paste the deployed Worker URL into `API_BASE_URL` in `app.js`.
 `GET /api/health` reports which chains are configured. Secrets are encrypted at
 rest and never appear in the repo, in `wrangler.toml`, or in the browser.
+Rotating a key is the same `secret put` command plus a redeploy — no code
+change and nothing for agents to do.
 
-Cloudflare's free plan covers 100,000 Worker requests/day and 1,000 KV
-writes/day, which is far beyond what a field team generates. There is no server
-to keep alive, patch, or scale.
+A Worker is not a process you keep alive: Cloudflare runs it per request at the
+edge, so it is 24×7 from the moment it deploys, with no VM, container or cron
+to maintain. The free plan covers 100,000 requests/day and 1,000 KV writes/day.
 
 ### Important limits
 
@@ -93,6 +99,7 @@ to keep alive, patch, or scale.
 - `index.html` — the page shell (styles + layout container). Open this file.
 - `app.js` — the entire application (state, validation, docx generation,
   print/PDF fallback). Loaded by `index.html` as an ES module.
+- `RUNBOOK.md` — go-live steps, key insertion/rotation, monitoring.
 - `worker/` — Cloudflare Worker holding the OCR/LLM keys and the
   primary/secondary failover logic. Deployed separately; see above.
 - `google-apps-script.gs` — companion script for logging to a Google Sheet.

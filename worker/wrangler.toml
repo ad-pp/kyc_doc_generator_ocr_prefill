@@ -2,23 +2,27 @@ name = "docgen-api"
 main = "src/index.js"
 compatibility_date = "2026-01-01"
 
-# Comma-separated list of exact origins allowed to call this Worker.
-# Set it to wherever the static app is published.
 [vars]
+# Comma-separated list of exact origins allowed to call this Worker.
+# Origin means scheme + host only, with no path and no trailing slash.
+# GitHub Pages project sites are served from the account origin, so
+# https://ad-pp.github.io/kyc_doc_generator_ocr_prefill/ has the origin below.
 ALLOWED_ORIGINS = "https://ad-pp.github.io"
 GEMINI_MODEL = "gemini-2.5-flash"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 DAILY_LIMIT_PER_AGENT = "40"
 DAILY_LIMIT_PER_IP = "120"
 
-# Quota counters and the usage log. Create with:
-#   wrangler kv namespace create USAGE
-# then paste the returned id below.
-[[kv_namespaces]]
-binding = "USAGE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# Quota counters and the central usage log.
+# Create the namespace, then uncomment this block and paste in the id:
+#   npx wrangler kv namespace create USAGE
+# Without it the Worker still extracts documents; it just cannot enforce
+# per-day caps or keep a central log.
+# [[kv_namespaces]]
+# binding = "USAGE"
+# id = "PASTE_THE_ID_PRINTED_BY_THE_COMMAND_ABOVE"
 
-# Secrets are NOT set here. Set them once, encrypted, with:
-#   wrangler secret put GEMINI_API_KEY
-#   wrangler secret put OCRSPACE_API_KEY
-#   wrangler secret put GROQ_API_KEY
+# Secrets are NOT set here — this file is committed. Set them once, encrypted:
+#   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put OCRSPACE_API_KEY
+#   npx wrangler secret put GROQ_API_KEY
